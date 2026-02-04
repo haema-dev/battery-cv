@@ -41,9 +41,7 @@ def main():
         mlflow.log_artifact(f"{OUTPUT_DIR}/info.json")
 
         logger.success(f"✅ {score:.3f} ({label})")
-        
-        logger.success(f"✅ {score:.3f} ({label})")
-        
+                
     except Exception as e:
         logger.error(f"❌ {e}")
         raise

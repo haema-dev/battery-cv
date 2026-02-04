@@ -14,35 +14,33 @@ def main():
     logger.info(f"📂 {os.path.abspath(OUTPUT_DIR)}")
     
     try:
-        # ====== 여기서부터 삭제하고 코드 작성 하면 됨. ===============
+        # ====== 삭제하고 코드 작성 부분 ====== 
         logger.info("📥 Patchcore 로드")
         model = Patchcore(backbone="resnet18", pre_trained=True)
-        
-        # 테스트 이미지 + inference 시뮬
+
         img = np.random.randint(50, 150, (256, 256, 3), dtype=np.uint8)
         cv2.rectangle(img, (100, 100), (200, 200), (255, 0, 0), 3)
         score = np.random.random() * 0.3 + 0.2
         result = img.copy()
         label, color = ("ANOMALY", (0,0,255)) if score > 0.4 else ("NORMAL", (0,255,0))
         cv2.putText(result, f"{label} {score:.3f}", (50, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
-        # ====== 여기까지 삭제하고 코드 작성 ===============
+        # ====== 여기까지 =======
 
         # mlflow 에 추가할 결과들이 있으면 추가해도 됨. 없으면 삭제.
-        # outputs 저장 + MLflow
         cv2.imwrite(f"{OUTPUT_DIR}/result.jpg", result)
         mlflow.log_artifact(f"{OUTPUT_DIR}/result.jpg")
         mlflow.log_metric("anomaly_score", score)
         mlflow.log_param("status", label)
-        
-        # 모델 저장 (실제 .pt)
+
         model_path = f"{OUTPUT_DIR}/model.pt"
         torch.save(model.state_dict(), model_path)
         mlflow.log_artifact(model_path)
-        
-        # 메타데이터
+
         with open(f"{OUTPUT_DIR}/info.json", 'w') as f:
             json.dump({"backbone": "resnet18", "score": float(score)}, f)
         mlflow.log_artifact(f"{OUTPUT_DIR}/info.json")
+
+        logger.success(f"✅ {score:.3f} ({label})")
         
         logger.success(f"✅ {score:.3f} ({label})")
         

@@ -21,7 +21,6 @@ outputs:
     type: uri_folder
     # Job 완료 후 자동 업로드
     mode: rw_mount
-    path: ./outputs
 
 compute: azureml:gpu-t4
 environment: azureml:env-yolo@latest

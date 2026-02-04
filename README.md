@@ -7,7 +7,7 @@
 ```bash
 Repository/
 ├─ .github/workflows/
-│    └─ train.yml   ⚠️ 모델 등록 이름 변경 시에만 수정
+│    └─ train.yml   ❌ 수정 금지.
 ├─ command/         ❌ 수정 금지. 명령어 백업용
 ├─ env/             ❌ 수정 금지. 환경설정 백업용
 ├─ src/

@@ -22,7 +22,7 @@ outputs:
     # Job 완료 후 자동 업로드
     mode: upload
 
-compute: azureml:github
+compute: azureml:gpu-t4
 environment: azureml:env-yolo@latest
 # Job 실험명과 task 명 지정. 미기재 해도 됨.
 experiment_name: Test_Github

@@ -23,10 +23,10 @@ def main():
     try:
 
         # ================== 2. YOLO 작업 ==================
-        logger.info("📥 YOLO 모델 로드 중..")
+        logger.info("📥 YOLO 모델 로드 중...")
         model = YOLO("yolov8n.pt")
         
-        logger.info("🔍 샘플 추론 중..")
+        logger.info("🔍 샘플 추론 중...")
         results = model.predict(source="https://ultralytics.com/images/zidane.jpg", conf=0.25)
         
         # 결과 이미지 저장

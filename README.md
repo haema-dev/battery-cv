@@ -1,6 +1,6 @@
 # battery-cv
 
-2차전지 Battery 양품/불량 판별 YOLO 모델 학습 파이프라인
+2차전지 Battery 양품/불량 판별 Anomalib 모델 학습 파이프라인
 
 ## 폴더구조
 
@@ -19,7 +19,7 @@ Repository/
 
 ## github push 가이드
 
-### Job Push / Register Model
+### Job Push
 
 #### 파일명 고정
 
@@ -36,7 +36,6 @@ index.py
 - index. py
 
 ```python
-# ================== 1. config 세팅 ==================
 .
 .
 .
@@ -53,7 +52,6 @@ parser.add_argument('--output_dir', type=str, default='./outputs', help='결과 
 - index.py
 
 ```python
-# ================== 1. config 세팅 ==================
 # Azure ML 경로 설정
 parser.add_argument('--data_path', type=str, required=True, help='dataset 폴더 경로')
 parser.add_argument('--output_dir', type=str, default='./outputs', help='결과 저장 경로')

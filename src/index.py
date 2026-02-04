@@ -1,77 +1,58 @@
 import os
 import argparse
 from loguru import logger
-
-# azure module
-from azureml.core.run import Run
 from ultralytics.models import YOLO
-
+import mlflow
 
 def main():
-    parser = argparse.ArgumentParser(description="YOLO")
+    parser = argparse.ArgumentParser(description="YOLO Training/Inference")
     
-    # ================== 1. config 세팅 ==================
+    # ================== 1. input/output 데이터 세팅 ==================
     parser.add_argument('--output_dir', type=str, default='./outputs', help='결과 저장 경로')
-    
     args = parser.parse_args()
     
-    # ================== 1. 경로 및 환경 설정 ==================
+    # Azure ML Job 실행 시 자동으로 트래킹 서버와 연결
+    mlflow.start_run()
+
     OUTPUT_DIR = args.output_dir
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-    logger.info(f"📂 Output Root: {os.path.abspath(OUTPUT_DIR)}")
-
-    # 모델 저장 디렉토리
     MODEL_DIR = os.path.join(OUTPUT_DIR, "models")
     os.makedirs(MODEL_DIR, exist_ok=True)
 
-    LOG_DIR = os.path.join(OUTPUT_DIR, "logs")
-    os.makedirs(LOG_DIR, exist_ok=True)
-
-    logger.info(f"📂 작업 디렉토리 설정 완료:")
-    logger.info(f"   - Model Save Dir: {os.path.abspath(MODEL_DIR)}")
-    logger.info(f"   - Log Save Dir: {os.path.abspath(LOG_DIR)}")
-
-    # ================== 2. YOLO ==================
-    print("OK")
+    logger.info(f"📂 Output Dir: {os.path.abspath(OUTPUT_DIR)}")
 
     try:
-        
-        # ✅ 테스트 1: YOLO 모델 로드 (사전학습 모델)
+
+        # ================== 2. YOLO 작업 ==================
         logger.info("📥 YOLO 모델 로드 중...")
-        model = YOLO("yolov8n.pt")  # nano 버전 (가장 빠름)
-        logger.success("✅ YOLO 모델 로드 완료!")
+        model = YOLO("yolov8n.pt")
         
-        # ✅ 테스트 2: 샘플 이미지로 추론
         logger.info("🔍 샘플 추론 중...")
         results = model.predict(source="https://ultralytics.com/images/zidane.jpg", conf=0.25)
         
-        # 결과 저장
+        # 결과 이미지 저장
         for i, result in enumerate(results):
-            result.save(filename=os.path.join(MODEL_DIR, f"result_{i}.jpg"))
+            save_path = os.path.join(MODEL_DIR, f"result_{i}.jpg")
+            result.save(filename=save_path)
+            # MLflow에 개별 파일 로깅 (선택사항)
+            mlflow.log_artifact(save_path, artifact_path="predictions")
         
-        logger.success(f"✅ 추론 완료! 결과: {len(results)}개")
-        
-        # ✅ 테스트 3: 모델 저장
-        logger.info("💾 모델 저장 중...")
-        model.save(os.path.join(MODEL_DIR, "yolov8n.pt"))
+        # 모델 저장
+        model_path = os.path.join(MODEL_DIR, "yolov8n.pt")
+        model.save(model_path)
         logger.success("✅ 모델 저장 완료!")
-        
+
+        # ================== YOLO 작업 끝 ==================
+
+
+        # ================== 3. 모델 등록 ==================
+        mlflow.log_artifact(model_path, artifact_path="weights")
+
     except Exception as e:
         logger.error(f"❌ YOLO 테스트 실패: {e}")
-        import traceback
-        traceback.print_exc()
-
-    # ================== 3. Azure 업로드 ==================
-    try:
-        run = Run.get_context()
-        run.upload_folder(name="outputs", path=OUTPUT_DIR)
-        logger.success("✅ Outputs uploaded to Azure ML!")
-    except Exception as e:
-        logger.warning(f"⚠️ Upload failed (로컬 실행인 경우 무시): {e}")
-
-    logger.success("🎉 모든 테스트 완료!")
-
+        raise e # 에러를 다시 던져서 Job이 'Failed' 상태가 되게 함
+    
+    mlflow.end_run()
+    logger.success("🎉 모든 프로세스 완료!")
 
 if __name__ == "__main__":
     main()

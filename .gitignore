@@ -1,1 +1,4 @@
 outputs/
+mlruns/
+mlflow.db
+env/uv.lock

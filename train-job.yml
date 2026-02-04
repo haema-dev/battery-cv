@@ -1,0 +1,29 @@
+$schema: https://azuremlschemas.azureedge.net/latest/commandJob.schema.json
+type: command
+code: src/
+# 실제 사용할 때 아래 command 삭제 후, 해당 로직 주석 해제하여 사용하기
+# command: >-
+#   python index.py \
+#     --data_path ${{inputs.data}} \
+#     --output_dir ${{outputs.outputs}}
+# inputs:
+#   data:
+#     type: uri_folder
+#     path: azureml:[데이터셋이름]@latest
+#     mode: ro_mount
+
+command: >-
+  python index.py \
+    --output_dir ${{outputs.outputs}}
+
+outputs:
+  outputs:
+    type: uri_folder
+    # Job 완료 후 자동 업로드
+    mode: upload
+
+compute: azureml:github
+environment: azureml:env-yolo@latest
+# Job 실험명과 task 명 지정. 미기재 해도 됨.
+experiment_name: Test_Github
+display_name: "Test Github"

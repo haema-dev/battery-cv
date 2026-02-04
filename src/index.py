@@ -33,9 +33,9 @@ def main():
     logger.info(f"   - Log Save Dir: {os.path.abspath(LOG_DIR)}")
 
     # ================== 2. YOLO ==================
-    print("=================")
-    print("로직 작성 자유롭게")
-    print("=================")
+    print("========")
+    print("로직 작성")
+    print("========")
 
     try:
         

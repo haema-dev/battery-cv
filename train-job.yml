@@ -36,7 +36,11 @@ outputs:
     mode: rw_mount
 
 compute: azureml:gpu-cluster-t4
-environment: azureml:env-yolo@latest
+# Environment: Build from Dockerfile (using team's uv setup)
+environment:
+  build:
+    path: src
+    dockerfile_path: Dockerfile
 # Job 실험명과 task 명 지정. 미기재 해도 됨.
 experiment_name: Test_Github
 display_name: "Test Github"

@@ -22,10 +22,10 @@ def main():
     base_path = Path(args.data_path)
 
     # ZIP 및 CSV 경로 설정
-    zip_folder_rel = "103.배터리 불량 이미지 데이터/3.개방데이터/1.데이터/Training/01.원천데이터"
+    zip_folder_rel = "3.개방데이터/1.데이터/Training/01.원천데이터"
     zip_dir = base_path / zip_folder_rel
     zip_file = zip_dir / "TS_Exterior_Img_Datasets_images_3.zip"
-    csv_file = base_path / "103.배터리 불량 이미지 데이터/good_list.csv"
+    csv_file = base_path / "good_list.csv"
 
     # ==========================================
     # 🔍 근본 해결: 구조 확인 + 존재 여부 검증

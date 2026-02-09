@@ -22,7 +22,7 @@ outputs:
     type: uri_folder
     mode: rw_mount
 
-compute: azureml:vision-gpu
+compute: azureml:gpu-t4
 environment: azureml:env-yolo@latest
 experiment_name: Battery_Direct_Pipeline
 display_name: "Battery Direct Streaming Train"

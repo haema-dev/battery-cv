@@ -1,8 +1,0 @@
-/app/.venv/lib/python3.11/site-packages/mlflow/utils/requirements_utils.py:20: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
-  import pkg_resources  # noqa: TID251
-Traceback (most recent call last):
-  File "/mnt/azureml/cr/j/37c765cc08dc40f399c05c45be8cffbd/exe/wd/index.py", line 10, in <module>
-    from extractor import run_selective_extraction
-  File "/mnt/azureml/cr/j/37c765cc08dc40f399c05c45be8cffbd/exe/wd/extractor.py", line 4, in <module>
-    from adlfs import AzureBlobFileSystem
-ModuleNotFoundError: No module named 'adlfs'

@@ -16,6 +16,7 @@ def main():
     parser.add_argument("--data_path", type=str, help="Path to mounted data asset")
     parser.add_argument('--output_dir', type=str, default='./outputs')
     parser.add_argument("--epochs", type=int, default=10)    
+
     args = parser.parse_args()
     base_path = Path(args.data_path)
 

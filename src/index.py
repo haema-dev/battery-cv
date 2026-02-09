@@ -3,8 +3,11 @@ from loguru import logger
 from anomalib.models import Fastflow
 from anomalib.data import Folder
 from anomalib.engine import Engine
+from anomalib.models import Patchcore
 from pathlib import Path
 import numpy as np, cv2
+import adlfs
+import fsspec
 
 # 독립 모듈 임포트
 from extractor import run_selective_extraction
@@ -36,47 +39,16 @@ def main():
     try:
         # ================== 2. 이상탐지 작업 ==================== #
         
-        # [A] 데이터 자동 추출 (extractor 모듈 사용)
-        dataset_root = "./temp_datasets"
-        normal_dir = os.path.join(dataset_root, "normal")
-        
-        success = run_selective_extraction(
-            target_zip_path=zip_dir,
-            target_zip_file=zip_file,
-            good_list_path=csv_file,
-            output_dir=normal_dir
-        )
+        # ====== 삭제하고 코드 작성 부분 ====== 
+        logger.info("📥 Patchcore 로드")
+        model = Patchcore(backbone="resnet18", pre_trained=True)
 
-        if not success:
-            raise RuntimeError("학습 데이터 준비(추출) 실패")
-
-        # ====== Anomalib FastFlow 학습 ====== 
-        logger.info("🚀 Fastflow 학습 프로세스 시작")
-        datamodule = Folder(
-            name="battery_anomaly",
-            root=dataset_root,
-            normal_dir="normal",
-            train_batch_size=4,
-            num_workers=4,
-        )
-
-        model = Fastflow(backbone="resnet18", flow_steps=8)
-
-        engine = Engine(
-            max_epochs=args.epochs,
-            accelerator="gpu",
-            devices=1,
-            limit_val_batches=0,
-            num_sanity_val_steps=0,
-            default_root_dir=OUTPUT_DIR
-        )
-
-        engine.fit(datamodule=datamodule, model=model)
-
-        # 결과 변수 설정 (기존 템플릿 호환용)
-        score = 0.0 # 학습용이므로 더미값
-        label = "N/A"
-        result = np.zeros((100, 100, 3), dtype=np.uint8) # 더미 이미지
+        img = np.random.randint(50, 150, (256, 256, 3), dtype=np.uint8)
+        cv2.rectangle(img, (100, 100), (200, 200), (255, 0, 0), 3)
+        score = np.random.random() * 0.3 + 0.2
+        result = img.copy()
+        label, color = ("ANOMALY", (0,0,255)) if score > 0.4 else ("NORMAL", (0,255,0))
+        cv2.putText(result, f"{label} {score:.3f}", (50, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
         # ====== 여기까지 =======
 
         # mlflow 에 추가할 결과들이 있으면 추가해도 됨. 없으면 삭제.
@@ -84,11 +56,7 @@ def main():
         model_path = f"{OUTPUT_DIR}/model.pt"
         torch.save(model.state_dict(), model_path)
         with open(f"{OUTPUT_DIR}/info.json", 'w') as f:
-            json.dump({
-                "model": "FastFlow",
-                "backbone": "resnet18",
-                "finish_time": time.ctime()
-            }, f)
+            json.dump({"backbone": "resnet18", "score": float(score)}, f)
 
 
         # ================== 3. output blob mount ==================== #

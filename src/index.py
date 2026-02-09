@@ -93,7 +93,6 @@ def main():
             json.dump({
                 "model": "FastFlow",
                 "backbone": "resnet18",
-                "zip_source": args.blob_path,
                 "finish_time": time.ctime()
             }, f)
 

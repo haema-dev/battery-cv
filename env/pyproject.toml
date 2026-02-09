@@ -6,21 +6,20 @@ build-backend = "hatchling.build"
 name = "anomalib-yolo-detector"
 version = "0.1.0"
 description = "Anomalib and YOLO object detection with Azure ML"
-# 3.11 이상으로 수정
 requires-python = ">=3.11,<3.12"
 dependencies = [
+    "setuptools",            # mlflow의 pkg_resources 에러 해결을 위한 근본 대책
+    "adlfs",
+    "fsspec",
+    "mlflow>=2.18.0,<3.0.0", # 2026년 기준 Azure ML 안정화 버전
+    "azureml-mlflow>=1.61.0", # 중복 제거 및 최신 호환 버전으로 단일화
     "anomalib==2.2.0",
     "ultralytics>=8.0.0",
     "torch==2.5.1",
     "torchvision",
-    "azure-ai-ml>=1.12.0",
-    "mlflow==2.9.2",
-    "azureml-mlflow>=1.57.0,<1.58.0",
     "loguru>=0.7.0",
     "opencv-python-headless",
     "numpy>=1.24.0",
-    "adlfs",
-    "fsspec",
 ]
 
 [project.optional-dependencies]

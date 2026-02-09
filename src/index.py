@@ -40,7 +40,7 @@ def main():
 
     for label, path in check_targets.items():
         if path.exists():
-            logger.info(f"✅ {label} 확인 완료: {path}")
+            logger.info(f"✅ {label} 확인 완료!: {path}")
         else:
             logger.error(f"❌ {label}을(를) 찾을 수 없음: {path}")
             # 필수 데이터가 없는 경우 더 진행하지 않고 즉시 예외를 발생시켜 중단하는 것이 효율적입니다.

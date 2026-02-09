@@ -9,8 +9,6 @@ import numpy as np, cv2
 import adlfs
 import fsspec
 
-# 독립 모듈 임포트
-from extractor import run_selective_extraction
 
 def main():
 

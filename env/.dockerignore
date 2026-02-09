@@ -1,0 +1,13 @@
+# 로컬의 모든 가상환경 제외
+.venv/
+venv/
+env/
+
+# 파이썬 캐시 및 장부 제외
+__pycache__/
+*.pyc
+uv.lock
+
+# 기타 잡동사니
+.git/
+.vscode/

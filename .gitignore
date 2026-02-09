@@ -2,3 +2,6 @@ outputs/
 mlruns/
 mlflow.db
 env/uv.lock
+battery-llm/__pycache__/
+battery-llm/venv/
+battery-llm/.env

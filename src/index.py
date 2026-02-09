@@ -29,6 +29,25 @@ def main():
     # CSV 파일 전체 경로
     csv_file = base_path / "103.배터리 불량 이미지 데이터/good_list.csv"
 
+    # ========================================== 파일 및 디렉토리 존재 여부 확인 로직 추가 ==========================================
+    logger.info("🔍 데이터 경로 유효성 검증 중...")
+    
+    check_targets = {
+        "데이터 디렉토리": zip_dir,
+        "ZIP 파일": zip_file,
+        "CSV 데이터": csv_file
+    }
+
+    for label, path in check_targets.items():
+        if path.exists():
+            logger.info(f"✅ {label} 확인 완료: {path}")
+        else:
+            logger.error(f"❌ {label}을(를) 찾을 수 없음: {path}")
+            # 필수 데이터가 없는 경우 더 진행하지 않고 즉시 예외를 발생시켜 중단하는 것이 효율적입니다.
+            if path == zip_file or path == csv_file:
+                raise FileNotFoundError(f"필수 파일 '{label}'이(가) 존재하지 않습니다. Azure ML 데이터 마운트를 확인하십시오.")
+    
+    # ========================================== Mlflow ==========================================
     mlflow.start_run()
     OUTPUT_DIR = args.output_dir
     os.makedirs(OUTPUT_DIR, exist_ok=True)

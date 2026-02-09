@@ -2,3 +2,26 @@ outputs/
 mlruns/
 mlflow.db
 env/uv.lock
+
+# Logs and temporary files
+logs_*/
+temp_datasets/
+job_status.json
+analyze_recent_jobs.py
+get_latest_job.py
+get_logs.py
+monitor_jobs.py
+check_compute.py
+
+# Python environment
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+.history/

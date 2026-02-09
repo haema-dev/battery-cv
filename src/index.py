@@ -15,10 +15,11 @@ def main():
     parser.add_argument('--output_dir', type=str, default='./outputs')
     
     # 데이터 추출을 위한 추가 인자
+    parser.add_argument("--data_path", type=str, help="Path to mounted data asset")
     parser.add_argument("--account_name", type=str, default="batterydata8ai6team")
     parser.add_argument("--sas_token", type=str, required=True)
     parser.add_argument("--container", type=str, default="battery-data-zip")
-    parser.add_argument("--blob_path", type=str, default="103.배터리 불량 이미지 데이터/3.개방데이터/1.데이터/Training/01.원천데이터/TS_Exterior_Img_Datasets_images_3.zip")
+    parser.add_argument("--blob_path", type=str, default="TS_Exterior_Img_Datasets_images_3.zip")
     parser.add_argument("--good_list_path", type=str, default="good_list.csv")
     parser.add_argument("--epochs", type=int, default=10)
     
@@ -32,15 +33,21 @@ def main():
     try:
         # ================== 2. 이상탐지 작업 ==================== #
         
-        # ====== 전처리: 데이터 자동 추출 ====== 
+        # [A] 데이터 자동 추출 (extractor 모듈 사용)
         dataset_root = "./temp_datasets"
         normal_dir = os.path.join(dataset_root, "normal")
         
+        # 마운트 경로가 있으면 해당 경로를 우선 사용
+        target_zip = args.blob_path
+        if args.data_path:
+            target_zip = os.path.join(args.data_path, args.blob_path)
+            logger.info(f"마운트된 데이터 자산 사용: {target_zip}")
+
         success = run_selective_extraction(
-            account_name=args.account_name,
-            sas_token=args.sas_token,
+            account_name=args.account_name if not args.data_path else None, # 마운트 시 인증 생략 가능
+            sas_token=args.sas_token if not args.data_path else None,
             container=args.container,
-            blob_path=args.blob_path,
+            blob_path=target_zip, # 마운트된 전체 경로 또는 blob 이름
             good_list_path=args.good_list_path,
             output_dir=normal_dir
         )

@@ -34,15 +34,33 @@ def run_selective_extraction(account_name, sas_token, container, blob_path, good
     logger.info(f"정상 배터리 목록 로드 완료: {len(good_ids)}개 ID")
 
     try:
-        # 2. Azure 연결 및 ZIP 오픈
-        if sas_token.startswith('?'):
-            sas_token = sas_token[1:]
+        # 2. ZIP 파일 오픈 (로컬 마운트 vs 원격 Blob)
+        if not account_name or not sas_token:
+            # 로컬 마운트 경로 처리
+            full_blob_path = os.path.join(blob_path) if not container else os.path.join(container, blob_path)
+            # data_path가 절대 경로일 수 있으므로 처리
+            final_zip_path = os.path.join(output_dir, "..", full_blob_path) # 상대 경로 예시
+            # 하지만 Azure ML 마운트 경로는 절대 경로로 들어오므로:
+            if os.path.isabs(blob_path):
+                 final_zip_path = blob_path
+            else:
+                 # Orchestrator/YAML에서 넘겨준 data_path 기반
+                 final_zip_path = os.path.join(os.path.dirname(output_dir), full_blob_path) 
             
-        fs = AzureBlobFileSystem(account_name=account_name, sas_token=sas_token)
-        full_blob_path = f"{container}/{blob_path}"
+            # 실제 index.py에서 넘겨줄 로직에 맞춰 유연하게 수정
+            # 여기서는 단순히 blob_path가 이미 전체 경로이거나, adlfs를 안쓰는 모드로 판단
+            logger.info(f"로컬 마운트 파일 접근 시도: {blob_path}")
+            zip_context = open(blob_path, "rb")
+        else:
+            # 원격 Blob 접근 (기존 방식)
+            if sas_token.startswith('?'):
+                sas_token = sas_token[1:]
+            fs = AzureBlobFileSystem(account_name=account_name, sas_token=sas_token)
+            full_blob_path = f"{container}/{blob_path}"
+            logger.info(f"원격 ZIP 파일 연결 시도 (adlfs): {full_blob_path}")
+            zip_context = fs.open(full_blob_path, "rb")
         
-        logger.info(f"원격 ZIP 파일 연결 시도: {full_blob_path}")
-        with fs.open(full_blob_path, "rb") as f:
+        with zip_context as f:
             with zipfile.ZipFile(f, 'r') as z:
                 all_names = z.namelist()
                 

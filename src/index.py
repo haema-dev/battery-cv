@@ -74,8 +74,7 @@ def main():
         datamodule = Folder(
             name="battery",
             root=dataset_root,
-            normal_dir="data/good_images",  # 실제 Blob 폴더 구조에 맞춤
-            image_size=(256, 256),
+            normal_dir=".",  # 이미지가 루트에 직접 있음
             train_batch_size=32,
             eval_batch_size=32,
             num_workers=4,

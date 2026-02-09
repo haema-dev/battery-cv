@@ -1,0 +1,90 @@
+2026-02-04T02:58:17: Logging into Docker registry: 375c688203014d1cb3273695ae3932f9.azurecr.io
+2026-02-04T02:58:17: WARNING! Using --password via the CLI is insecure. Use --password-stdin.
+
+2026-02-04T02:58:17: Login Succeeded
+2026-02-04T02:58:17: WARNING! Your credentials are stored unencrypted in '/root/.docker/config.json'.
+2026-02-04T02:58:17: Configure a credential helper to remove this warning. See
+2026-02-04T02:58:17: https://docs.docker.com/go/credential-store/
+
+
+
+2026-02-04T02:58:17: Running: ['docker', 'build', '-f', 'Dockerfile', '.', '-t', '375c688203014d1cb3273695ae3932f9.azurecr.io/azureml/azureml_a4860d653c7759f425719b19ccbe9ff8', '-t', '375c688203014d1cb3273695ae3932f9.azurecr.io/azureml/azureml_a4860d653c7759f425719b19ccbe9ff8:1']
+2026-02-04T02:58:18: #0 building with "default" instance using docker driver
+
+2026-02-04T02:58:18: #1 [internal] load .dockerignore
+2026-02-04T02:58:18: #1 transferring context: 2B done
+2026-02-04T02:58:18: #1 DONE 0.1s
+
+2026-02-04T02:58:18: #2 [internal] load build definition from Dockerfile
+2026-02-04T02:58:18: #2 transferring dockerfile: 771B done
+2026-02-04T02:58:18: #2 DONE 0.2s
+
+2026-02-04T02:58:18: #3 [internal] load metadata for ghcr.io/astral-sh/uv:latest
+2026-02-04T02:58:18: #3 DONE 0.6s
+
+2026-02-04T02:58:18: #4 [internal] load metadata for docker.io/nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04
+2026-02-04T02:58:19: #4 DONE 1.3s
+
+2026-02-04T02:58:19: #5 [stage-0 1/7] FROM docker.io/nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04@sha256:f3a7fb39fa3ffbe54da713dd2e93063885e5be2f4586a705c39031b8284d379a
+2026-02-04T02:58:19: #5 DONE 0.0s
+
+2026-02-04T02:58:19: #6 FROM ghcr.io/astral-sh/uv:latest@sha256:db9370c2b0b837c74f454bea914343da9f29232035aa7632a1b14dc03add9edb
+2026-02-04T02:58:19: #6 DONE 0.0s
+
+2026-02-04T02:58:19: #7 [stage-0 2/7] RUN apt-get update && apt-get install -y     python3.10     python3.10-dev     python3.10-venv     && rm -rf /var/lib/apt/lists/*
+2026-02-04T02:58:19: #7 CACHED
+
+2026-02-04T02:58:19: #8 [stage-0 3/7] COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+2026-02-04T02:58:19: #8 CACHED
+
+2026-02-04T02:58:19: #9 [stage-0 4/7] WORKDIR /app
+2026-02-04T02:58:19: #9 CACHED
+
+2026-02-04T02:58:19: #10 [internal] load build context
+2026-02-04T02:58:19: #10 transferring context: 1.50kB done
+2026-02-04T02:58:19: #10 DONE 0.1s
+
+2026-02-04T02:58:19: #11 [stage-0 5/7] COPY pyproject.toml uv.lock ./
+2026-02-04T02:58:19: #11 ERROR: failed to calculate checksum of ref 9ec04c68-912f-4991-82b6-6f05384bf37f::bfgea5s5xbhk8ltvm6z7mxxse: "/uv.lock": not found
+2026-02-04T02:58:19: ------
+2026-02-04T02:58:19:  > [stage-0 5/7] COPY pyproject.toml uv.lock ./:
+2026-02-04T02:58:19: ------
+2026-02-04T02:58:19: Dockerfile:16
+2026-02-04T02:58:19: --------------------
+2026-02-04T02:58:19:   14 |     
+2026-02-04T02:58:19:   15 |     # 3. 의존성 파일 복사
+2026-02-04T02:58:19:   16 | >>> COPY pyproject.toml uv.lock ./
+2026-02-04T02:58:19:   17 |     
+2026-02-04T02:58:19:   18 |     # 4. ✅ uv로 모든 의존성 설치 (torch도 포함)
+2026-02-04T02:58:19: --------------------
+2026-02-04T02:58:19: ERROR: failed to solve: failed to compute cache key: failed to calculate checksum of ref 9ec04c68-912f-4991-82b6-6f05384bf37f::bfgea5s5xbhk8ltvm6z7mxxse: "/uv.lock": not found
+
+
+2026-02-04T02:58:19: CalledProcessError(1, ['docker', 'build', '-f', 'Dockerfile', '.', '-t', '375c688203014d1cb3273695ae3932f9.azurecr.io/azureml/azureml_a4860d653c7759f425719b19ccbe9ff8', '-t', '375c688203014d1cb3273695ae3932f9.azurecr.io/azureml/azureml_a4860d653c7759f425719b19ccbe9ff8:1'])
+
+2026-02-04T02:58:19: Building docker image failed with exit code: 1
+
+2026-02-04T02:58:19: Logging out of Docker registry: 375c688203014d1cb3273695ae3932f9.azurecr.io
+2026-02-04T02:58:19: Removing login credentials for https://index.docker.io/v1/
+
+
+2026-02-04T02:58:19: Traceback (most recent call last):
+  File "/mnt/azureml/cr/j/908df3b09b83400aa7d65f4da9c095c9/exe/wd/docker_utilities.py", line 152, in _docker_build_or_error
+    docker_execute_function(docker_command, build_command, print_command_args=True)
+  File "/mnt/azureml/cr/j/908df3b09b83400aa7d65f4da9c095c9/exe/wd/docker_utilities.py", line 23, in docker_execute_function
+    return killable_subprocess.check_call(command_args, *popen_args,
+  File "/mnt/azureml/cr/j/908df3b09b83400aa7d65f4da9c095c9/exe/wd/killable_subprocess.py", line 261, in check_call
+    raise subprocess.CalledProcessError(process.returncode, cmd)
+subprocess.CalledProcessError: Command '['docker', 'build', '-f', 'Dockerfile', '.', '-t', '375c688203014d1cb3273695ae3932f9.azurecr.io/azureml/azureml_a4860d653c7759f425719b19ccbe9ff8', '-t', '375c688203014d1cb3273695ae3932f9.azurecr.io/azureml/azureml_a4860d653c7759f425719b19ccbe9ff8:1']' returned non-zero exit status 1.
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "script.py", line 162, in <module>
+    docker_utilities._docker_build_or_error(
+  File "/mnt/azureml/cr/j/908df3b09b83400aa7d65f4da9c095c9/exe/wd/docker_utilities.py", line 156, in _docker_build_or_error
+    _write_error_and_exit(error_msg, error_file_path=error_file_path)
+  File "/mnt/azureml/cr/j/908df3b09b83400aa7d65f4da9c095c9/exe/wd/docker_utilities.py", line 217, in _write_error_and_exit
+    sys.exit(1)
+SystemExit: 1
+

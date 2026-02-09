@@ -1,0 +1,12 @@
+/app/.venv/lib/python3.11/site-packages/mlflow/utils/requirements_utils.py:20: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  import pkg_resources  # noqa: TID251
+2026-02-09 06:53:31.088 | INFO     | __main__:main:34 - 📂 /mnt/azureml/cr/j/42251919801649f5afab24182d0f695f/cap/data-capability/wd/outputs
+2026-02-09 06:53:31.088 | ERROR    | __main__:main:105 - ❌ 'Namespace' object has no attribute 'blob_path'
+Traceback (most recent call last):
+  File "/mnt/azureml/cr/j/42251919801649f5afab24182d0f695f/exe/wd/index.py", line 111, in <module>
+    if __name__ == "__main__": main()
+                               ^^^^^^
+  File "/mnt/azureml/cr/j/42251919801649f5afab24182d0f695f/exe/wd/index.py", line 44, in main
+    target_zip = args.blob_path
+                 ^^^^^^^^^^^^^^
+AttributeError: 'Namespace' object has no attribute 'blob_path'

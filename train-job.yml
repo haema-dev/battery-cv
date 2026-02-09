@@ -3,22 +3,26 @@ type: command
 code: src/
 command: >-
   python index.py \
-    --data_path ${{inputs.data}} \
+    --account_name '${{inputs.account_name}}' \
+    --sas_token '${{inputs.sas_token}}' \
+    --container '${{inputs.container}}' \
+    --blob_path '${{inputs.blob_path}}' \
+    --epochs ${{inputs.epochs}} \
     --output_dir ${{outputs.outputs}}
+
 inputs:
-  data:
-    type: uri_folder
-    path: azureml:battery_data_zip@latest
-    mode: ro_mount
+  account_name: "batterydata8ai6team"
+  sas_token: "sv=2025-07-05&spr=https&st=2026-02-09T02%3A58%3A45Z&se=2026-02-10T02%3A58%3A45Z&sr=c&sp=racwlt&sig=yOIw2fRr86ogubymBq2qQwbs9%2B%2FQvHDhaD8%2BUHaWwro%3D"
+  container: "battery-data-zip"
+  blob_path: "103.배터리 불량 이미지 데이터/3.개방데이터/1.데이터/Training/01.원천데이터/TS_Exterior_Img_Datasets_images_3.zip"
+  epochs: 10
 
 outputs:
   outputs:
     type: uri_folder
-    # Job 완료 후 자동 업로드
     mode: rw_mount
 
-compute: azureml:gpu-t4
+compute: azureml:vision-gpu
 environment: azureml:env-yolo@latest
-# Job 실험명과 task 명 지정. 미기재 해도 됨.
-experiment_name: ch_test_1
-display_name: "ch_test_1"
+experiment_name: Battery_Direct_Pipeline
+display_name: "Battery Direct Streaming Train"

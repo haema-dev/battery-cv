@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "/mnt/azureml/cr/j/8bc5be55ac114a38b2b5701536ffeaca/exe/wd/train.py", line 6, in <module>
+    from anomalib.models import PatchCore
+ImportError: cannot import name 'PatchCore' from 'anomalib.models' (/app/.venv/lib/python3.11/site-packages/anomalib/models/__init__.py)

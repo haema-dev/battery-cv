@@ -1,0 +1,28 @@
+2026-02-04 09:11:03.277 | INFO     | __main__:main:14 - 📂 /mnt/azureml/cr/j/fd35208323f444e8885b18beb5778dd2/cap/data-capability/wd/outputs
+2026-02-04 09:11:03.277 | INFO     | __main__:main:18 - 📥 Patchcore 로드
+2026-02-04 09:11:05.591 | ERROR    | __main__:main:50 - ❌ azureml_artifacts_builder() got an unexpected keyword argument 'tracking_uri'
+Traceback (most recent call last):
+  File "/mnt/azureml/cr/j/fd35208323f444e8885b18beb5778dd2/exe/wd/index.py", line 56, in <module>
+    if __name__ == "__main__": main()
+                               ^^^^^^
+  File "/mnt/azureml/cr/j/fd35208323f444e8885b18beb5778dd2/exe/wd/index.py", line 33, in main
+    mlflow.log_artifact(f"{OUTPUT_DIR}/result.jpg")
+  File "/app/.venv/lib/python3.11/site-packages/mlflow/tracking/fluent.py", line 1533, in log_artifact
+    MlflowClient().log_artifact(run_id, local_path, artifact_path)
+  File "/app/.venv/lib/python3.11/site-packages/mlflow/tracking/client.py", line 2652, in log_artifact
+    self._tracking_client.log_artifact(run_id, local_path, artifact_path)
+  File "/app/.venv/lib/python3.11/site-packages/mlflow/tracking/_tracking_service/client.py", line 667, in log_artifact
+    artifact_repo = self._get_artifact_repo(run_id)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/.venv/lib/python3.11/site-packages/mlflow/tracking/_tracking_service/client.py", line 650, in _get_artifact_repo
+    artifact_repo = get_artifact_repository(artifact_uri, tracking_uri=self.tracking_uri)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/.venv/lib/python3.11/site-packages/mlflow/store/artifact/artifact_repository_registry.py", line 147, in get_artifact_repository
+    return _artifact_repository_registry.get_artifact_repository(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/.venv/lib/python3.11/site-packages/mlflow/store/artifact/artifact_repository_registry.py", line 83, in get_artifact_repository
+    return repository(artifact_uri, tracking_uri=tracking_uri, registry_uri=registry_uri)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: azureml_artifacts_builder() got an unexpected keyword argument 'tracking_uri'
+🏃 View run Test Github at: https://koreacentral.api.azureml.ms/mlflow/v2.0/subscriptions/b850d62a-25fe-4d3a-9697-ea40449528a9/resourceGroups/8ai-final-team6/providers/Microsoft.MachineLearningServices/workspaces/vision/#/experiments/331a92de-97b1-4480-b3f5-b7af3eacf3df/runs/salmon_pocket_3x3ts745cp
+🧪 View experiment at: https://koreacentral.api.azureml.ms/mlflow/v2.0/subscriptions/b850d62a-25fe-4d3a-9697-ea40449528a9/resourceGroups/8ai-final-team6/providers/Microsoft.MachineLearningServices/workspaces/vision/#/experiments/331a92de-97b1-4480-b3f5-b7af3eacf3df

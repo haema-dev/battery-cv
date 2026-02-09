@@ -1,0 +1,104 @@
+2026-02-04T02:53:11: Logging into Docker registry: 375c688203014d1cb3273695ae3932f9.azurecr.io
+2026-02-04T02:53:11: WARNING! Using --password via the CLI is insecure. Use --password-stdin.
+2026-02-04T02:53:11: Login Succeeded
+
+2026-02-04T02:53:11: WARNING! Your credentials are stored unencrypted in '/root/.docker/config.json'.
+2026-02-04T02:53:11: Configure a credential helper to remove this warning. See
+2026-02-04T02:53:11: https://docs.docker.com/go/credential-store/
+
+
+
+2026-02-04T02:53:11: Running: ['docker', 'build', '-f', 'Dockerfile', '.', '-t', '375c688203014d1cb3273695ae3932f9.azurecr.io/azureml/azureml_15d61d4a588cdf3df823a6aa752d998e', '-t', '375c688203014d1cb3273695ae3932f9.azurecr.io/azureml/azureml_15d61d4a588cdf3df823a6aa752d998e:1']
+2026-02-04T02:53:11: #0 building with "default" instance using docker driver
+
+2026-02-04T02:53:11: #1 [internal] load .dockerignore
+2026-02-04T02:53:11: #1 transferring context: 2B done
+2026-02-04T02:53:11: #1 DONE 0.1s
+
+2026-02-04T02:53:11: #2 [internal] load build definition from Dockerfile
+2026-02-04T02:53:11: #2 transferring dockerfile: 1.01kB done
+2026-02-04T02:53:11: #2 DONE 0.2s
+
+2026-02-04T02:53:11: #3 [internal] load metadata for docker.io/nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04
+2026-02-04T02:53:12: #3 ...
+
+2026-02-04T02:53:12: #4 [internal] load metadata for ghcr.io/astral-sh/uv:latest
+2026-02-04T02:53:12: #4 DONE 0.6s
+
+2026-02-04T02:53:12: #3 [internal] load metadata for docker.io/nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04
+2026-02-04T02:53:13: #3 DONE 1.3s
+
+2026-02-04T02:53:13: #5 [stage-0  1/10] FROM docker.io/nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04@sha256:f3a7fb39fa3ffbe54da713dd2e93063885e5be2f4586a705c39031b8284d379a
+2026-02-04T02:53:13: #5 DONE 0.0s
+
+2026-02-04T02:53:13: #6 FROM ghcr.io/astral-sh/uv:latest@sha256:db9370c2b0b837c74f454bea914343da9f29232035aa7632a1b14dc03add9edb
+2026-02-04T02:53:13: #6 DONE 0.0s
+
+2026-02-04T02:53:13: #7 [internal] load build context
+2026-02-04T02:53:13: #7 transferring context: 1.74kB done
+2026-02-04T02:53:13: #7 DONE 0.1s
+
+2026-02-04T02:53:13: #8 [stage-0  4/10] COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+2026-02-04T02:53:13: #8 CACHED
+
+2026-02-04T02:53:13: #9 [stage-0  2/10] RUN apt-get update && apt-get install -y     python3.10     python3.10-dev     python3.10-venv     python3-pip     && rm -rf /var/lib/apt/lists/*
+2026-02-04T02:53:13: #9 CACHED
+
+2026-02-04T02:53:13: #10 [stage-0  3/10] RUN python3.10 -m pip install --upgrade pip
+2026-02-04T02:53:13: #10 CACHED
+
+2026-02-04T02:53:13: #11 [stage-0  5/10] WORKDIR /app
+2026-02-04T02:53:13: #11 CACHED
+
+2026-02-04T02:53:13: #12 [stage-0  6/10] COPY pyproject.toml uv.lock* ./
+2026-02-04T02:53:13: #12 DONE 0.3s
+
+2026-02-04T02:53:13: #13 [stage-0  7/10] RUN python3.10 -m pip install torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0     --index-url https://download.pytorch.org/whl/cu121
+2026-02-04T02:53:14: #13 0.797 Looking in indexes: https://download.pytorch.org/whl/cu121
+2026-02-04T02:53:15: #13 1.832 ERROR: Could not find a version that satisfies the requirement torch==2.6.0 (from versions: 2.1.0+cu121, 2.1.1+cu121, 2.1.2+cu121, 2.2.0+cu121, 2.2.1+cu121, 2.2.2+cu121, 2.3.0+cu121, 2.3.1+cu121, 2.4.0+cu121, 2.4.1+cu121, 2.5.0+cu121, 2.5.1+cu121)
+2026-02-04T02:53:16: #13 2.717 ERROR: No matching distribution found for torch==2.6.0
+2026-02-04T02:53:16: #13 ERROR: process "/bin/sh -c python3.10 -m pip install torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0     --index-url https://download.pytorch.org/whl/cu121" did not complete successfully: exit code: 1
+2026-02-04T02:53:16: ------
+2026-02-04T02:53:16:  > [stage-0  7/10] RUN python3.10 -m pip install torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0     --index-url https://download.pytorch.org/whl/cu121:
+2026-02-04T02:53:16: 0.797 Looking in indexes: https://download.pytorch.org/whl/cu121
+2026-02-04T02:53:16: 1.832 ERROR: Could not find a version that satisfies the requirement torch==2.6.0 (from versions: 2.1.0+cu121, 2.1.1+cu121, 2.1.2+cu121, 2.2.0+cu121, 2.2.1+cu121, 2.2.2+cu121, 2.3.0+cu121, 2.3.1+cu121, 2.4.0+cu121, 2.4.1+cu121, 2.5.0+cu121, 2.5.1+cu121)
+2026-02-04T02:53:16: 2.717 ERROR: No matching distribution found for torch==2.6.0
+2026-02-04T02:53:16: ------
+2026-02-04T02:53:16: Dockerfile:23
+2026-02-04T02:53:16: --------------------
+2026-02-04T02:53:16:   22 |     # PyTorch GPU 버전 설치 (CUDA 12.1)
+2026-02-04T02:53:16:   23 | >>> RUN python3.10 -m pip install torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 \
+2026-02-04T02:53:16:   24 | >>>     --index-url https://download.pytorch.org/whl/cu121
+2026-02-04T02:53:16:   25 |     
+2026-02-04T02:53:16: --------------------
+2026-02-04T02:53:16: ERROR: failed to solve: process "/bin/sh -c python3.10 -m pip install torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0     --index-url https://download.pytorch.org/whl/cu121" did not complete successfully: exit code: 1
+
+
+2026-02-04T02:53:16: CalledProcessError(1, ['docker', 'build', '-f', 'Dockerfile', '.', '-t', '375c688203014d1cb3273695ae3932f9.azurecr.io/azureml/azureml_15d61d4a588cdf3df823a6aa752d998e', '-t', '375c688203014d1cb3273695ae3932f9.azurecr.io/azureml/azureml_15d61d4a588cdf3df823a6aa752d998e:1'])
+
+2026-02-04T02:53:16: Building docker image failed with exit code: 1
+
+2026-02-04T02:53:16: Logging out of Docker registry: 375c688203014d1cb3273695ae3932f9.azurecr.io
+2026-02-04T02:53:16: Removing login credentials for https://index.docker.io/v1/
+
+
+2026-02-04T02:53:16: Traceback (most recent call last):
+  File "/mnt/azureml/cr/j/668dc36ab7b4433da866f7070b4a9612/exe/wd/docker_utilities.py", line 152, in _docker_build_or_error
+    docker_execute_function(docker_command, build_command, print_command_args=True)
+  File "/mnt/azureml/cr/j/668dc36ab7b4433da866f7070b4a9612/exe/wd/docker_utilities.py", line 23, in docker_execute_function
+    return killable_subprocess.check_call(command_args, *popen_args,
+  File "/mnt/azureml/cr/j/668dc36ab7b4433da866f7070b4a9612/exe/wd/killable_subprocess.py", line 261, in check_call
+    raise subprocess.CalledProcessError(process.returncode, cmd)
+subprocess.CalledProcessError: Command '['docker', 'build', '-f', 'Dockerfile', '.', '-t', '375c688203014d1cb3273695ae3932f9.azurecr.io/azureml/azureml_15d61d4a588cdf3df823a6aa752d998e', '-t', '375c688203014d1cb3273695ae3932f9.azurecr.io/azureml/azureml_15d61d4a588cdf3df823a6aa752d998e:1']' returned non-zero exit status 1.
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "script.py", line 162, in <module>
+    docker_utilities._docker_build_or_error(
+  File "/mnt/azureml/cr/j/668dc36ab7b4433da866f7070b4a9612/exe/wd/docker_utilities.py", line 156, in _docker_build_or_error
+    _write_error_and_exit(error_msg, error_file_path=error_file_path)
+  File "/mnt/azureml/cr/j/668dc36ab7b4433da866f7070b4a9612/exe/wd/docker_utilities.py", line 217, in _write_error_and_exit
+    sys.exit(1)
+SystemExit: 1
+

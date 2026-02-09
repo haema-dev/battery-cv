@@ -72,4 +72,9 @@ command: >-
 .
 .
 .
+
+# Job 실험명과 task 명 지정. 미기재 해도 됨.
+# experiment_name은 공백 비허용, display_name는 따옴표 필수
+experiment_name: Test_Github
+display_name: "Test Github"
 ```

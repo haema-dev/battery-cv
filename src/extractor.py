@@ -1,99 +1,106 @@
+
 import os
-import re
-import pandas as pd
-from adlfs import AzureBlobFileSystem
+import glob
+import shutil
 import zipfile
-from loguru import logger
+import fnmatch
 
-def extract_battery_id(filename):
-    """파일명에서 배터리 ID를 추출하는 유틸리티 함수"""
-    match = re.search(r'cylindrical_(\d+)_', filename)
-    return int(match.group(1)) if match else None
-
-def run_selective_extraction(account_name, sas_token, container, blob_path, good_list_path, output_dir):
+def extract_and_organize(source_root, target_root, file_pattern, filter_csv=None):
     """
-    Azure Blob Storage의 ZIP 파일로부터 정상 배터리 이미지만을 선택적으로 추출합니다.
+    Extracts ZIP files matching 'file_pattern' from 'source_root' to 'target_root'.
+    Organizes them into Train/Test based on filename conventions (TS_, VS_).
     
     Args:
-        account_name (str): Azure 스토리지 계정 이름
-        sas_token (str): SAS 토큰
-        container (str): 컨테이너 이름
-        blob_path (str): ZIP 파일 경로
-        good_list_path (str): 정상 배터리 ID 목록 CSV 경로
-        output_dir (str): 로컬 추출 경로 (예: ./temp_datasets/normal)
+        source_root (str): Path to mounted Azure Blob data.
+        target_root (str): Local path to extract data to.
+        file_pattern (str): Glob pattern for ZIP selection (e.g. '*_4.zip').
+        filter_csv (str, optional): Path to 'good_list.csv' for filtering. (Not implemented yet)
     """
-    logger.info("📦 선택적 이미지 추출 모듈 시작")
+    print(f"[*] Extracting data from {source_root} to {target_root}...")
+    print(f"[*] Filter Pattern: {file_pattern}")
     
-    if not os.path.exists(good_list_path):
-        logger.error(f"정상 목록 파일을 찾을 수 없습니다: {good_list_path}")
-        return False
+    if filter_csv:
+        print(f"[!] Warning: CSV filtering with '{filter_csv}' is mentioned in design but not fully implemented. Proceeding with pattern match.")
     
-    # 1. 대상 배터리 ID 로드
-    good_df = pd.read_csv(good_list_path)
-    good_ids = set(good_df['battery_id'].unique())
-    logger.info(f"정상 배터리 목록 로드 완료: {len(good_ids)}개 ID")
-
-    try:
-        # 2. ZIP 파일 오픈 (로컬 마운트 vs 원격 Blob)
-        if not account_name or not sas_token:
-            # 로컬 마운트 경로 처리
-            full_blob_path = os.path.join(blob_path) if not container else os.path.join(container, blob_path)
-            # data_path가 절대 경로일 수 있으므로 처리
-            final_zip_path = os.path.join(output_dir, "..", full_blob_path) # 상대 경로 예시
-            # 하지만 Azure ML 마운트 경로는 절대 경로로 들어오므로:
-            if os.path.isabs(blob_path):
-                 final_zip_path = blob_path
-            else:
-                 # Orchestrator/YAML에서 넘겨준 data_path 기반
-                 final_zip_path = os.path.join(os.path.dirname(output_dir), full_blob_path) 
-            
-            # 실제 index.py에서 넘겨줄 로직에 맞춰 유연하게 수정
-            # 여기서는 단순히 blob_path가 이미 전체 경로이거나, adlfs를 안쓰는 모드로 판단
-            logger.info(f"로컬 마운트 파일 접근 시도: {blob_path}")
-            zip_context = open(blob_path, "rb")
-        else:
-            # 원격 Blob 접근 (기존 방식)
-            if sas_token.startswith('?'):
-                sas_token = sas_token[1:]
-            fs = AzureBlobFileSystem(account_name=account_name, sas_token=sas_token)
-            full_blob_path = f"{container}/{blob_path}"
-            logger.info(f"원격 ZIP 파일 연결 시도 (adlfs): {full_blob_path}")
-            zip_context = fs.open(full_blob_path, "rb")
+    # 1. Setup folders
+    train_dir = os.path.join(target_root, "train", "good")
+    test_good_dir = os.path.join(target_root, "test", "good")
+    test_defect_dir = os.path.join(target_root, "test", "defect")
+    
+    os.makedirs(train_dir, exist_ok=True)
+    os.makedirs(test_good_dir, exist_ok=True)
+    os.makedirs(test_defect_dir, exist_ok=True)
+    
+    # 2. Find Zips with Pattern
+    # Use glob to find all zips, then filter by filename pattern
+    all_zips = glob.glob(os.path.join(source_root, "**/*.zip"), recursive=True)
+    zips = [z for z in all_zips if fnmatch.fnmatch(os.path.basename(z), file_pattern)]
+    
+    print(f"[*] Found {len(zips)} zip files matching pattern (out of {len(all_zips)} total).")
+    
+    for zip_path in zips:
+        filename = os.path.basename(zip_path)
+        print(f"    Processing: {filename}")
         
-        with zip_context as f:
-            with zipfile.ZipFile(f, 'r') as z:
-                all_names = z.namelist()
+        try:
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                # Decide target based on filename (TS=Train, VS=Validation/Test)
+                if "TS_" in filename:
+                    # Training Data (All Normal)
+                    zip_ref.extractall(train_dir)
                 
-                # 3. ZIP 내부 ID 필터링
-                zip_ids = {extract_battery_id(n) for n in all_names if extract_battery_id(n)}
-                match_ids = sorted(list(zip_ids.intersection(good_ids)))
-                
-                if not match_ids:
-                    logger.warning("가져올 수 있는 정상 배터리 ID가 ZIP 내에 없습니다.")
-                    return False
-                
-                logger.info(f"매칭된 배터리 ID 발견: {len(match_ids)}개 ({match_ids[0]} ~ {match_ids[-1]})")
-                
-                # 추출 대상 필터링
-                files_to_extract = [n for n in all_names if extract_battery_id(n) in match_ids]
-                logger.info(f"대상 이미지 총 {len(files_to_extract)}개 추출 준비 중...")
-
-                # 4. 순차적 추출 및 저장
-                if not os.path.exists(output_dir):
-                    os.makedirs(output_dir, exist_ok=True)
-                
-                for i, filename in enumerate(files_to_extract):
-                    save_path = os.path.join(output_dir, os.path.basename(filename))
-                    if not os.path.exists(save_path):
-                        with z.open(filename) as source, open(save_path, "wb") as target:
-                            target.write(source.read())
+                elif "VS_" in filename:
+                    # Validation Data (Normal + Defect)
+                    temp_vs = os.path.join(target_root, "temp_vs")
+                    zip_ref.extractall(temp_vs)
                     
-                    if (i + 1) % 1000 == 0 or (i + 1) == len(files_to_extract):
-                        logger.info(f"진행 상황: [{i+1}/{len(files_to_extract)}] 파일 추출 완료")
-        
-        logger.success("✅ 선택적 추출 작업이 성공적으로 종료되었습니다.")
-        return True
+                    for root, _, files in os.walk(temp_vs):
+                        for f in files:
+                            if not f.lower().endswith(('.png', '.jpg', '.jpeg')):
+                                continue
+                            full_path = os.path.join(root, f)
+                            lower_path = full_path.lower()
+                            
+                            if "normal" in lower_path or "양품" in lower_path:
+                                shutil.move(full_path, os.path.join(test_good_dir, f))
+                            else:
+                                shutil.move(full_path, os.path.join(test_defect_dir, f))
+                                
+                    shutil.rmtree(temp_vs) # Cleanup
+                    
+        except Exception as e:
+            print(f"[!] Error extracting {filename}: {e}")
 
-    except Exception as e:
-        logger.error(f"추출 작업 중 치명적 오류 발생: {e}")
-        return False
+    # Check counts
+    n_train = len(os.listdir(train_dir))
+    n_test_good = len(os.listdir(test_good_dir))
+    n_test_defect = len(os.listdir(test_defect_dir))
+    
+    # [Auto-Split Logic]
+    # If we have TS data but NO VS data, the model training might fail or we can't validate.
+    # We will move 10% of Train -> Test/Good to allow validation to run.
+    if n_train > 0 and n_test_good == 0 and n_test_defect == 0:
+        print("[!] No Validation (VS) data found. Executing Auto-Split (10% of Train -> Test/Good)...")
+        train_files = os.listdir(train_dir)
+        import random
+        # Move 10% or at least 1 file
+        split_count = max(1, int(len(train_files) * 0.1))
+        move_files = random.sample(train_files, split_count)
+        
+        for f in move_files:
+            shutil.move(os.path.join(train_dir, f), os.path.join(test_good_dir, f))
+            
+        n_train -= split_count
+        n_test_good += split_count
+        print(f"    -> Moved {split_count} files to Test/Good.")
+
+    print(f"[*] Data Prepared:")
+    print(f"    Train (Good): {n_train}")
+    print(f"    Test (Good) : {n_test_good}")
+    print(f"    Test (Defect): {n_test_defect}")
+    
+    if n_train == 0:
+        # If absolutely no data, that's an error
+        raise RuntimeError("No training data found! Check 'TS_' logic or file pattern.")
+        
+    return target_root

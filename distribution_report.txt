@@ -1,0 +1,29 @@
+
+--- TRAIN (Good) ---
+Count: 126
+Min  : 3.7596
+Max  : 5.1794
+Mean : 4.2379
+Std  : 0.2556
+95th : 4.6854
+99th : 5.0836
+
+
+--- TEST (Good) ---
+Count: 25
+Min  : 3.9837
+Max  : 5.0119
+Mean : 4.3434
+Std  : 0.3095
+95th : 4.9243
+99th : 4.9919
+
+
+--- TEST (Defect) ---
+Count: 1
+Min  : 4.1407
+Max  : 4.1407
+Mean : 4.1407
+Std  : 0.0000
+95th : 4.1407
+99th : 4.1407

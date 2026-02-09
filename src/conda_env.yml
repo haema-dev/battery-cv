@@ -1,0 +1,16 @@
+name: anomalib-env
+channels:
+  - conda-forge
+  - pytorch
+  - nvidia
+dependencies:
+  - python=3.10
+  - pip
+  - pip:
+    - azureml-mlflow
+    - anomalib==0.7.0
+    - torch
+    - torchvision
+    - openvino>=2023.0.0
+    - pytorch-lightning==1.9.5
+    - pandas

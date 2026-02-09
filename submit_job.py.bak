@@ -1,0 +1,141 @@
+
+
+import sys
+import types
+
+# Monkeypatch imghdr for Python 3.13 compatibility
+try:
+    import imghdr
+except ImportError:
+    imghdr = types.ModuleType('imghdr')
+    def what(file, h=None): return None
+    imghdr.what = what
+    sys.modules['imghdr'] = imghdr
+
+from azureml.core import Workspace, Experiment, Environment, ScriptRunConfig, ComputeTarget, Dataset, Datastore
+from azureml.core.runconfig import DockerConfiguration
+from azureml.core.compute import AmlCompute
+from azureml.core.compute_target import ComputeTargetException
+import os
+
+# ==========================================
+# [User Configuration]
+# ==========================================
+EXPERIMENT_NAME = "battery-anomaly-detection"
+ENV_NAME = "anomalib-env"
+
+# [Compute Settings]
+# --- Option 1: Budget Friendly (T4) ---
+COMPUTE_NAME = "gpu-cluster-t4"
+VM_SIZE = "Standard_NC4as_T4_v3"
+MAX_NODES = 1
+
+# --- Option 2: High Performance (A100) ---
+# COMPUTE_NAME = "gpu-cluster-a100"
+# VM_SIZE = "Standard_NC24ads_A100_v4"
+# MAX_NODES = 1
+
+# [File Selection]
+# "*.zip" = Use ALL zip files (97GB+)
+# "*_4.zip" = Use only files ending in _4.zip (e.g. the 1GB file)
+FILE_PATTERN = "*_4.zip" 
+# ==========================================
+
+def main():
+    print("[*] Connecting to Azure ML Workspace...")
+    
+    # 1. Connect to Workspace (SDK v1)
+    try:
+        ws = Workspace.from_config()
+        print(f"[*] Connected to Workspace: {ws.name}")
+    except Exception as e:
+        print("[!] Could not find config.json or connect to Workspace.")
+        print(f"    Error: {e}")
+        return
+
+    # 2. Get or Create Compute Target
+    try:
+        compute_target = ComputeTarget(workspace=ws, name=COMPUTE_NAME)
+        print(f"[*] Found Existing Compute Target: {COMPUTE_NAME}")
+    except ComputeTargetException:
+        print(f"[*] Compute '{COMPUTE_NAME}' not found. Creating it now...")
+        print(f"    VM Size: {VM_SIZE}")
+        print(f"    Max Nodes: {MAX_NODES}")
+        
+        config = AmlCompute.provisioning_configuration(
+            vm_size=VM_SIZE, 
+            min_nodes=0, 
+            max_nodes=MAX_NODES
+        )
+        compute_target = ComputeTarget.create(ws, COMPUTE_NAME, config)
+        compute_target.wait_for_completion(show_output=True)
+        print("[*] Compute Created Successfully!")
+
+    # 3. Define Environment
+    # Create or retrieve environment
+    env = Environment.from_conda_specification(name=ENV_NAME, file_path="./src/conda_env.yml")
+    
+    # Enable Docker
+    docker_config = DockerConfiguration(use_docker=True)
+    env.docker.base_image = "mcr.microsoft.com/azureml/openmpi4.1.0-cuda11.1-cudnn8-ubuntu18.04"
+
+    # 4. Define Data Input (Mount Blob Storage)
+    # Finding the Blob Datastore (usually 'workspaceblobstore' or custom)
+    ds = ws.get_default_datastore()
+    print(f"[*] Using Default Datastore: {ds.name}")
+    
+    # Mount the 'battery-data' container path
+    # If your data is in a different container, get that datastore
+    # Assuming 'battery_storage' as seen in user's previous code, or default
+    try:
+        # Check if 'battery_storage' exists
+        dataset_ds = Datastore.get(ws, 'battery_storage')
+        print(f"[*] Found 'battery_storage' datastore.")
+    except:
+        print("[!] 'battery_storage' datastore not found. Using default.")
+        dataset_ds = ds
+        
+    # Create a DataReference object pointing to the root of the container
+    # (Using DataReference to avoid local 'azureml-dataset-runtime' dependency issues on Python 3.13)
+    from azureml.data.data_reference import DataReference
+    battery_data = DataReference(
+        datastore=dataset_ds, 
+        data_reference_name="battery_data", 
+        path_on_datastore="/", 
+        mode="mount"
+    )
+
+    print(f"[*] Configuration:")
+    print(f"    Target Cluster: {COMPUTE_NAME}")
+    print(f"    File Pattern  : {FILE_PATTERN}")
+
+    # 5. Configure Job (ScriptRunConfig)
+    src = ScriptRunConfig(
+        source_directory="./src",
+        script="train_entry.py",
+        arguments=[
+            "--data_path", str(battery_data), 
+            "--file_pattern", FILE_PATTERN,
+            "--epochs", 50
+        ],
+        compute_target=compute_target,
+        environment=env,
+        docker_runtime_config=docker_config
+    )
+    
+    # Explicitly attach the DataReference configuration to the run_config
+    src.run_config.data_references[battery_data.data_reference_name] = battery_data.to_config()
+
+    # 6. Submit
+    print("[*] Submitting Job...")
+    exp = Experiment(workspace=ws, name=EXPERIMENT_NAME)
+    run = exp.submit(src)
+    
+    print(f"[*] Job Submitted! Run ID: {run.id}")
+    print(f"[*] Tracking URL: {run.get_portal_url()}")
+    
+    # Optional: Wait for completion
+    # run.wait_for_completion(show_output=True)
+
+if __name__ == "__main__":
+    main()

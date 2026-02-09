@@ -1,4 +1,73 @@
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+.venv/
+venv/
+venv_model/
+ENV/
+env/bak/
+env.bak/
+
+# Azure ML
+.azureml/
 outputs/
-mlruns/
-mlflow.db
-env/uv.lock
+logs/
+azcopy.exe
+azcopy.zip
+azcopy_temp/
+
+# Large Data & Results
+dataset*/
+Sample/
+sample_data_v1/
+results*/
+*_heatmap*.png
+anomaly_*.png
+clustering_result.png
+debug_*.png
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets & Local Scripts
+*.ps1
+*_migration_*.py
+debug_*.py
+diagnostic_check.py
+inspect_*.py
+list_*.py
+migrate_*.py
+rescue_*.py
+upload_*.py
+verify_*.py
+

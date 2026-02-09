@@ -1,0 +1,7 @@
+anomalib
+torch
+torchvision
+openvino>=2023.0.0
+lightning
+pandas
+tm_file_util

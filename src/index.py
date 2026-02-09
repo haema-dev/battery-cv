@@ -17,7 +17,7 @@ def main():
     # 데이터 추출을 위한 추가 인자
     parser.add_argument("--data_path", type=str, help="Path to mounted data asset")
     parser.add_argument("--account_name", type=str, default="batterydata8ai6team")
-    parser.add_argument("--sas_token", type=str, required=True)
+    parser.add_argument("--sas_token", type=str, help="Azure Storage SAS Token")
     parser.add_argument("--container", type=str, default="battery-data-zip")
     parser.add_argument("--blob_path", type=str, default="TS_Exterior_Img_Datasets_images_3.zip")
     parser.add_argument("--good_list_path", type=str, default="good_list.csv")

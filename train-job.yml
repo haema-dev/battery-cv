@@ -25,15 +25,9 @@ inputs:
     type: uri_folder
     path: azureml:battery_data_zip@latest
     mode: ro_mount
-  sas_token:
-    type: string
-    default: "sv=2025-07-05&spr=https&st=2026-02-09T02%3A58%3A45Z&se=2026-02-10T02%3A58%3A45Z&sr=c&sp=racwlt&sig=yOIw2fRr86ogubymBq2qQwbs9%2B%2FQvHDhaD8%2BUHaWwro%3D"
-  blob_path:
-    type: string
-    default: "TS_Exterior_Img_Datasets_images_3.zip"
-  epochs:
-    type: integer
-    default: 10
+  sas_token: "sv=2025-07-05&spr=https&st=2026-02-09T02%3A58%3A45Z&se=2026-02-10T02%3A58%3A45Z&sr=c&sp=racwlt&sig=yOIw2fRr86ogubymBq2qQwbs9%2B%2FQvHDhaD8%2BUHaWwro%3D"
+  blob_path: "TS_Exterior_Img_Datasets_images_3.zip"
+  epochs: 10
 
 outputs:
   outputs:

@@ -36,20 +36,8 @@ def run_selective_extraction(account_name, sas_token, container, blob_path, good
     try:
         # 2. ZIP 파일 오픈 (로컬 마운트 vs 원격 Blob)
         if not account_name or not sas_token:
-            # 로컬 마운트 경로 처리
-            full_blob_path = os.path.join(blob_path) if not container else os.path.join(container, blob_path)
-            # data_path가 절대 경로일 수 있으므로 처리
-            final_zip_path = os.path.join(output_dir, "..", full_blob_path) # 상대 경로 예시
-            # 하지만 Azure ML 마운트 경로는 절대 경로로 들어오므로:
-            if os.path.isabs(blob_path):
-                 final_zip_path = blob_path
-            else:
-                 # Orchestrator/YAML에서 넘겨준 data_path 기반
-                 final_zip_path = os.path.join(os.path.dirname(output_dir), full_blob_path) 
-            
-            # 실제 index.py에서 넘겨줄 로직에 맞춰 유연하게 수정
-            # 여기서는 단순히 blob_path가 이미 전체 경로이거나, adlfs를 안쓰는 모드로 판단
-            logger.info(f"로컬 마운트 파일 접근 시도: {blob_path}")
+            # 로컬 마운트 또는 직접 경로 접근
+            logger.info(f"로컬 파일 시스템 접근 시도: {blob_path}")
             zip_context = open(blob_path, "rb")
         else:
             # 원격 Blob 접근 (기존 방식)

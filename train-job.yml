@@ -4,21 +4,21 @@ code: src/
 command: >-
   python index.py \
     --data_path ${{inputs.data}} \
-    --output_dir ${{outputs.outputs}}
+    --output_dir ${{outputs.outputs}} \
+    --epochs 1
+
 inputs:
   data:
     type: uri_folder
-    path: azureml:battery_data_zip@latest
+    path: azureml:battery-data-unzip@latest
     mode: ro_mount
 
 outputs:
   outputs:
     type: uri_folder
-    # Job 완료 후 자동 업로드
     mode: rw_mount
 
 compute: azureml:gpu-t4
 environment: azureml:env-yolo@latest
-# Job 실험명과 task 명 지정. 미기재 해도 됨.
-experiment_name: Test_Github
-display_name: "Test Github"
+experiment_name: Battery_PatchCore
+display_name: "PatchCore Training"

@@ -40,12 +40,6 @@ def main():
         dataset_root = "./temp_datasets"
         normal_dir = os.path.join(dataset_root, "normal")
         
-        # 마운트 경로가 있으면 해당 경로를 우선 사용
-        target_zip = args.blob_path
-        if args.data_path:
-            target_zip = os.path.join(args.data_path, args.blob_path)
-            logger.info(f"마운트된 데이터 자산 사용: {target_zip}")
-
         success = run_selective_extraction(
             target_zip_path=zip_dir,
             target_zip_file=zip_file,

@@ -76,7 +76,7 @@ def main():
             root=dataset_root,
             normal_dir=".",  # 이미지가 루트에 직접 있음
             train_batch_size=32,
-            eval_batch_size=32,
+            eval_batch_size=8,  # OOM 방지: 검증 시 배치 줄임
             num_workers=4,
         )
         
@@ -85,6 +85,7 @@ def main():
             backbone="resnet18",
             pre_trained=True,
             layers=["layer2", "layer3"],
+            coreset_sampling_ratio=0.01,  # OOM 방지: 기본 0.1 → 0.01 (메모리뱅크 축소)
         )
         
         # 엔진 설정 및 학습

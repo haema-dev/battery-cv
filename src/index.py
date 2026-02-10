@@ -3,11 +3,8 @@ from loguru import logger
 from anomalib.models import Fastflow
 from anomalib.data import Folder
 from anomalib.engine import Engine
-from anomalib.models import Patchcore
 from pathlib import Path
-import numpy as np, cv2
-import adlfs
-import fsspec
+import numpy as np
 
 
 def main():
@@ -16,7 +13,7 @@ def main():
     parser = argparse.ArgumentParser()    
     parser.add_argument("--data_path", type=str, help="Path to mounted data asset")
     parser.add_argument('--output_dir', type=str, default='./outputs')
-    parser.add_argument("--epochs", type=int, default=10)    
+    parser.add_argument("--epochs", type=int, default=1)  # MVP: 1 epoch for fast T4 completion
 
     args = parser.parse_args()
     base_path = Path(args.data_path)
@@ -63,8 +60,8 @@ def main():
     try:
         # ================== 2. 이상탐지 작업 ==================== #
         
-        # ====== PatchCore 학습 ====== 
-        logger.info("📥 PatchCore 모델 및 데이터셋 구성")
+        # ====== FastFlow 학습 ====== 
+        logger.info("📥 FastFlow 모델 및 데이터셋 구성")
         
         # 데이터셋 구성 (마운트된 압축해제 이미지 사용)
         # battery-data-unzip 컨테이너에서 마운트된 이미지 사용
@@ -80,12 +77,11 @@ def main():
             num_workers=4,
         )
         
-        # 모델 초기화
-        model = Patchcore(
+        # 모델 초기화 (FastFlow - T4 GPU 최적화)
+        model = Fastflow(
             backbone="resnet18",
-            pre_trained=True,
-            layers=["layer2", "layer3"],
-            coreset_sampling_ratio=0.05,  # T4 GPU 최적: 기본 0.1 → 0.05
+            flow_steps=8,
+            evaluator=False,  # gt_mask 없으므로 픽셀단위 평가 비활성화
         )
         
         # 엔진 설정 및 학습
@@ -110,9 +106,9 @@ def main():
         
         # 메타데이터 저장
         info = {
-            "model": "PatchCore",
+            "model": "FastFlow",
             "backbone": "resnet18",
-            "layers": ["layer2", "layer3"],
+            "flow_steps": 8,
             "epochs": args.epochs,
             "image_size": 256,
             "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")

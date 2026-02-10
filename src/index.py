@@ -85,7 +85,7 @@ def main():
             backbone="resnet18",
             pre_trained=True,
             layers=["layer2", "layer3"],
-            coreset_sampling_ratio=0.01,  # OOM 방지: 기본 0.1 → 0.01 (메모리뱅크 축소)
+            coreset_sampling_ratio=0.05,  # T4 GPU 최적: 기본 0.1 → 0.05
         )
         
         # 엔진 설정 및 학습

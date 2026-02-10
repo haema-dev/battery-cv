@@ -17,6 +17,13 @@ outputs:
     # Job 완료 후 자동 업로드
     mode: rw_mount
 
+tags:
+  Company_ID: "S001_Battery" # Samsung SDI 2차전지 회사
+  Factory_ID: "F001_Vacuum" # 공장명 (예: 진공건조 라인)
+  Target_Env: "dev" # 환경 (dev / prd)
+  Project_ID: "Anomalib_v1" # 논리적 프로젝트명
+  Job_ID: "${{name}}" # 물리적 식별자 (자동 할당)
+
 compute: azureml:gpu-t4
 environment: azureml:env-yolo@latest
 # Job 실험명과 task 명 지정. 미기재 해도 됨.

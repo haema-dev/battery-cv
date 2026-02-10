@@ -85,7 +85,7 @@ def main():
             backbone="resnet18",
             pre_trained=True,
             layers=["layer2", "layer3"],
-            coreset_sampling_ratio=0.05,  # T4 GPU 최적: 기본 0.1 → 0.05
+            coreset_sampling_ratio=0.1,  # Updated: 0.1 for smaller cropped dataset
         )
         
         # 엔진 설정 및 학습

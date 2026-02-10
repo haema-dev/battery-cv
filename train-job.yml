@@ -10,7 +10,7 @@ command: >-
 inputs:
   data:
     type: uri_folder
-    path: azureml:battery-data-unzip@latest
+    path: azureml:battery-data-CLAHE@latest
     mode: ro_mount
 
 outputs:
@@ -21,4 +21,4 @@ outputs:
 compute: azureml:gpu-t4
 environment: azureml:env-yolo@latest
 experiment_name: Battery_PatchCore
-display_name: "PatchCore Training"
+display_name: "PatchCore Training (CLAHE)"

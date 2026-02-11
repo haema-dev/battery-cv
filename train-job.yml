@@ -10,7 +10,7 @@ command: >-
 inputs:
   data:
     type: uri_folder
-    path: azureml:battery-data-CLAHE@latest
+    path: azureml:battery-data-CLAHE-gray@latest
     mode: ro_mount
 
 outputs:

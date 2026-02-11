@@ -11,6 +11,7 @@ import fsspec
 
 
 def main():
+    # Trigger training for battery-data-CLAHE-gray
 
     # ================== 1. input/output 설정 ==================== #
     parser = argparse.ArgumentParser()    

@@ -77,7 +77,6 @@ def main():
             train_augmentations=transform,
             val_augmentations=transform,
             test_augmentations=transform,
-            image_size=(1024, 320) 
         )
         
         # 모델 초기화
@@ -94,6 +93,19 @@ def main():
                 layers=["layer2", "layer3"],
                 coreset_sampling_ratio=0.01,  # Reduced to 0.01 for high-res (320x1024) inputs
             )
+
+        # ---------------------------------------------------------
+        # 🔧 [Fix] 모델 내부 리사이징 로직 강제 수정
+        # 모델이 기본적으로 256x256으로 리사이징하려는 것을 방지하고,
+        # 우리가 전처리한 1024x320 해상도를 유지하도록 강제합니다.
+        # ---------------------------------------------------------
+        if hasattr(model, "pre_processor") and hasattr(model.pre_processor, "transform"):
+            model.pre_processor.transform = Compose([
+                Resize((1024, 320)),
+                ToImage(), 
+                ToDtype(torch.float32, scale=True),
+            ])
+            logger.info("🔧 모델 내부 PreProcessor를 1024x320으로 강제 설정했습니다.")
         
         # 엔진 설정 및 학습
         engine = Engine(

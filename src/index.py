@@ -71,7 +71,7 @@ def main():
             name="battery",
             root=dataset_root,
             normal_dir=".", 
-            train_batch_size=32,
+            train_batch_size=4,
             eval_batch_size=8,
             num_workers=4,
             train_augmentations=transform,

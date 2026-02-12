@@ -8,7 +8,7 @@ command: >-
 inputs:
   data:
     type: uri_folder
-    path: azureml:battery_exterior_zip@4
+    path: azureml:battery_exterior_zip:4
     mode: ro_mount
 
 outputs:
@@ -18,7 +18,7 @@ outputs:
     mode: rw_mount
 
 compute: azureml:gpu-t4
-environment: azureml:env-yolo@21
+environment: azureml:env-yolo:21
 # Job 실험명과 task 명 지정. 미기재 해도 됨.
 experiment_name: Test_Github
 display_name: "Test Github"

@@ -6,6 +6,7 @@ from anomalib.engine import Engine
 from anomalib.models import Patchcore
 from pathlib import Path
 import numpy as np, cv2
+from torchvision.transforms.v2 import Compose, Resize, ToImage, ToDtype
 import adlfs
 import fsspec
 
@@ -32,29 +33,13 @@ def main():
         import subprocess
         # 폴더 구조를 2단계까지 싹 훑어서 로그에 남깁니다.
         result = subprocess.run(['ls', '-R', args.data_path], capture_output=True, text=True)
-        logger.info(f"📂 실제 마운트된 파일 구조:\n{result.stdout[:2000]}")
+        # logger.info(f"📂 실제 마운트된 파일 구조:\n{result.stdout[:2000]}")
         
         # 이미지 파일 수 확인
         image_count = len([f for f in os.listdir(args.data_path) if f.endswith(('.jpg', '.jpeg', '.png'))])
         logger.info(f"📷 마운트된 이미지 수: {image_count}개")
     else:
         raise FileNotFoundError(f"마운트 경로를 찾을 수 없습니다: {args.data_path}")
-    
-    # ==========================================
-    # [나중 사용] ZIP 기반 데이터 추출 코드 (현재 비활성화)
-    # ==========================================
-    # zip_folder_rel = "3.개방데이터/1.데이터/Training/01.원천데이터"
-    # zip_dir = base_path / zip_folder_rel
-    # zip_file = zip_dir / "TS_Exterior_Img_Datasets_images_3.zip"
-    # csv_file = base_path / "good_list.csv"
-    # check_targets = {"데이터 디렉토리": zip_dir, "ZIP 파일": zip_file, "CSV 데이터": csv_file}
-    # for label, path in check_targets.items():
-    #     if path.exists():
-    #         logger.info(f"✅ {label} 확인 완료!: {path}")
-    #     else:
-    #         logger.error(f"❌ {label}을(를) 찾을 수 없음: {path}")
-    #         if path == zip_file or path == csv_file:
-    #             raise FileNotFoundError(f"필수 파일 '{label}'이(가) 없습니다.")
     
     # ========================================== Mlflow ==========================================
     mlflow.start_run()
@@ -65,38 +50,32 @@ def main():
     try:
         # ================== 2. 이상탐지 작업 ==================== #
         
-        # ====== PatchCore 학습 ====== 
-        logger.info("📥 PatchCore 모델 및 데이터셋 구성")
+        logger.info(f"📥 {args.model.upper()} 모델 및 데이터셋 구성")
         
         import anomalib
         logger.info(f"📦 Anomalib Version: {anomalib.__version__}")
 
         # 데이터셋 구성 (마운트된 압축해제 이미지 사용)
-        # battery-data-unzip 컨테이너에서 마운트된 이미지 사용
         dataset_root = str(base_path)  # 마운트된 경로 직접 사용
         logger.info(f"📂 학습 데이터 경로: {dataset_root}")
         
-        try:
-            datamodule = Folder(
-                name="battery",
-                root=dataset_root,
-                normal_dir=".",  # 이미지가 루트에 직접 있음
-                train_batch_size=32,
-                eval_batch_size=8,  # OOM 방지: 검증 시 배치 줄임
-                num_workers=4,
-                image_size=(1024, 320), # (Height, Width)
-            )
-        except TypeError as e:
-            logger.warning(f"⚠️ image_size argument not supported by Folder: {e}")
-            logger.info("Initializing Folder without image_size")
-            datamodule = Folder(
-                name="battery",
-                root=dataset_root,
-                normal_dir=".",
-                train_batch_size=32,
-                eval_batch_size=8,
-                num_workers=4,
-            )
+        # Transform 정의 (Anomalib 2.2.0 호환)
+        # image_size 인자 대신 explicit transform 사용
+        transform = Compose([
+            Resize((1024, 320)),
+            ToImage(), 
+            ToDtype(torch.float32, scale=True),
+        ])
+
+        datamodule = Folder(
+            name="battery",
+            root=dataset_root,
+            normal_dir=".", 
+            train_batch_size=32,
+            eval_batch_size=8,
+            num_workers=4,
+            transform=transform 
+        )
         
         # 모델 초기화
         if args.model == "fastflow":
@@ -140,6 +119,7 @@ def main():
             "layers": ["layer2", "layer3"],
             "epochs": args.epochs,
             "image_size": (1024, 320),
+            "anomalib_version": anomalib.__version__,
             "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
         }
         with open(f"{OUTPUT_DIR}/info.json", 'w', encoding='utf-8') as f:

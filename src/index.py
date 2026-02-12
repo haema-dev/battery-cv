@@ -76,7 +76,8 @@ def main():
             num_workers=4,
             train_augmentations=transform,
             val_augmentations=transform,
-            test_augmentations=transform 
+            test_augmentations=transform,
+            image_size=(1024, 320) 
         )
         
         # 모델 초기화

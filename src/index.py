@@ -68,20 +68,35 @@ def main():
         # ====== PatchCore 학습 ====== 
         logger.info("📥 PatchCore 모델 및 데이터셋 구성")
         
+        import anomalib
+        logger.info(f"📦 Anomalib Version: {anomalib.__version__}")
+
         # 데이터셋 구성 (마운트된 압축해제 이미지 사용)
         # battery-data-unzip 컨테이너에서 마운트된 이미지 사용
         dataset_root = str(base_path)  # 마운트된 경로 직접 사용
         logger.info(f"📂 학습 데이터 경로: {dataset_root}")
         
-        datamodule = Folder(
-            name="battery",
-            root=dataset_root,
-            normal_dir=".",  # 이미지가 루트에 직접 있음
-            train_batch_size=32,
-            eval_batch_size=8,  # OOM 방지: 검증 시 배치 줄임
-            num_workers=4,
-            image_size=(1024, 320), # (Height, Width)
-        )
+        try:
+            datamodule = Folder(
+                name="battery",
+                root=dataset_root,
+                normal_dir=".",  # 이미지가 루트에 직접 있음
+                train_batch_size=32,
+                eval_batch_size=8,  # OOM 방지: 검증 시 배치 줄임
+                num_workers=4,
+                image_size=(1024, 320), # (Height, Width)
+            )
+        except TypeError as e:
+            logger.warning(f"⚠️ image_size argument not supported by Folder: {e}")
+            logger.info("Initializing Folder without image_size")
+            datamodule = Folder(
+                name="battery",
+                root=dataset_root,
+                normal_dir=".",
+                train_batch_size=32,
+                eval_batch_size=8,
+                num_workers=4,
+            )
         
         # 모델 초기화
         if args.model == "fastflow":

@@ -19,6 +19,6 @@ outputs:
     mode: rw_mount
 
 compute: azureml:gpu-t4
-environment: azureml:env-yolo-21@latest
+environment: azureml:env-yolo@latest
 experiment_name: Battery_PatchCore
 display_name: "PatchCore Training (CLAHE)"

@@ -114,7 +114,11 @@ def main():
             devices=1,
             default_root_dir=OUTPUT_DIR,
             enable_checkpointing=True,
+            precision="16-mixed", # Mixed Precision for memory optimization
         )
+        
+        # 💉 [Optim] 메모리 단편화 방지 환경변수 설정 (경고 메시지 반영)
+        os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
         
         logger.info("🚀 학습 시작...")
         engine.fit(model=model, datamodule=datamodule)

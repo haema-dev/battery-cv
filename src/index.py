@@ -74,7 +74,8 @@ def main():
             train_batch_size=32,
             eval_batch_size=8,
             num_workers=4,
-            transform=transform 
+            train_transform=transform,
+            eval_transform=transform 
         )
         
         # 모델 초기화

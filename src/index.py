@@ -83,12 +83,19 @@ def main():
         )
         
         # 모델 초기화
-        model = Patchcore(
-            backbone="resnet18",
-            pre_trained=True,
-            layers=["layer2", "layer3"],
-            coreset_sampling_ratio=0.01,  # Reduced to 0.01 for high-res (320x1024) inputs
-        )
+        if args.model == "fastflow":
+            model = Fastflow(
+                backbone="resnet18",
+                pre_trained=True,
+                flow_steps=8, # Default flow steps
+            )
+        else:
+            model = Patchcore(
+                backbone="resnet18",
+                pre_trained=True,
+                layers=["layer2", "layer3"],
+                coreset_sampling_ratio=0.01,  # Reduced to 0.01 for high-res (320x1024) inputs
+            )
         
         # 엔진 설정 및 학습
         engine = Engine(

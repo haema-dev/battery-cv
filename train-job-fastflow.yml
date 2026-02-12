@@ -1,0 +1,25 @@
+$schema: https://azuremlschemas.azureedge.net/latest/commandJob.schema.json
+type: command
+code: src/
+command: >-
+  python index.py \
+    --data_path ${{inputs.data}} \
+    --output_dir ${{outputs.outputs}} \
+    --epochs 500 \
+    --model fastflow
+
+inputs:
+  data:
+    type: uri_folder
+    path: azureml:battery-data-resized@latest
+    mode: ro_mount
+
+outputs:
+  outputs:
+    type: uri_folder
+    mode: rw_mount
+
+compute: azureml:gpu-t4
+environment: azureml:env-yolo@latest
+experiment_name: Battery_FastFlow
+display_name: "FastFlow Training (Resized 320x1024)"

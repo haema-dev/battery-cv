@@ -87,7 +87,7 @@ def main():
             backbone="resnet18",
             pre_trained=True,
             layers=["layer2", "layer3"],
-            coreset_sampling_ratio=0.01,  # Reduced to 0.01 for high-res (320x1024) inputs
+            coreset_sampling_ratio=0.1,  # Updated: 0.1 for smaller cropped dataset
         )
         
         # 엔진 설정 및 학습

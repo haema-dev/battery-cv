@@ -18,6 +18,7 @@ def main():
     parser.add_argument("--data_path", type=str, help="Path to mounted data asset")
     parser.add_argument('--output_dir', type=str, default='./outputs')
     parser.add_argument("--epochs", type=int, default=10)    
+    parser.add_argument("--model", type=str, default="patchcore", choices=["patchcore", "fastflow"], help="Model to train")
 
     args = parser.parse_args()
     base_path = Path(args.data_path)
@@ -119,7 +120,7 @@ def main():
         
         # 메타데이터 저장
         info = {
-            "model": "PatchCore",
+            "model": args.model,
             "backbone": "resnet18",
             "layers": ["layer2", "layer3"],
             "epochs": args.epochs,

@@ -111,7 +111,7 @@ def main():
         engine = Engine(
             max_epochs=args.epochs,
             accelerator="auto",
-            devices=1, # Fixed: Each process sees only 1 GPU in Azure ML (Isolation)
+            devices=4, # Use all 4 GPUs (Lightning manages spawning)
             strategy="ddp", # Distributed Data Parallel
             default_root_dir=OUTPUT_DIR,
             enable_checkpointing=True,

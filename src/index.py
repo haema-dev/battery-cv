@@ -1,131 +1,117 @@
-import os, torch, argparse, mlflow, json, time
+
+import os
+import torch
+import argparse
+import mlflow
+import json
+import time
 from loguru import logger
 from anomalib.models import Fastflow
 from anomalib.data import Folder
 from anomalib.engine import Engine
 from pathlib import Path
-import numpy as np
-
+from torchvision.transforms.v2 import Resize
 
 def main():
-
-    # ================== 1. input/output 설정 ==================== #
+    # ================== 1. Input/Output 설정 ==================== #
     parser = argparse.ArgumentParser()    
-    parser.add_argument("--data_path", type=str, help="Path to mounted data asset")
+    parser.add_argument("--data_path", type=str, required=True, help="Path to mounted data asset")
     parser.add_argument('--output_dir', type=str, default='./outputs')
-    parser.add_argument("--epochs", type=int, default=1)  # MVP: 1 epoch for fast T4 completion
+    parser.add_argument("--epochs", type=int, default=1)
 
     args = parser.parse_args()
-    base_path = Path(args.data_path)
+    
+    # 에저 스토리지 연동 경로 (양성 데이터셋 집중)
+    base_path = Path(args.data_path).resolve()
+    dataset_root = base_path / "datasets" / "resized" / "train" / "good"
 
-    # ==========================================
-    # 🔍 마운트 경로 확인 (압축 해제된 이미지 사용)
-    # ==========================================
-    logger.info(f"📍 마운트 루트 확인: {args.data_path}")
-    
-    if os.path.exists(args.data_path):
-        import subprocess
-        # 폴더 구조를 2단계까지 싹 훑어서 로그에 남깁니다.
-        result = subprocess.run(['ls', '-R', args.data_path], capture_output=True, text=True)
-        logger.info(f"📂 실제 마운트된 파일 구조:\n{result.stdout[:2000]}")
-        
-        # 이미지 파일 수 확인
-        image_count = len([f for f in os.listdir(args.data_path) if f.endswith(('.jpg', '.jpeg', '.png'))])
-        logger.info(f"📷 마운트된 이미지 수: {image_count}개")
-    else:
-        raise FileNotFoundError(f"마운트 경로를 찾을 수 없습니다: {args.data_path}")
-    
-    # ==========================================
-    # [나중 사용] ZIP 기반 데이터 추출 코드 (현재 비활성화)
-    # ==========================================
-    # zip_folder_rel = "3.개방데이터/1.데이터/Training/01.원천데이터"
-    # zip_dir = base_path / zip_folder_rel
-    # zip_file = zip_dir / "TS_Exterior_Img_Datasets_images_3.zip"
-    # csv_file = base_path / "good_list.csv"
-    # check_targets = {"데이터 디렉토리": zip_dir, "ZIP 파일": zip_file, "CSV 데이터": csv_file}
-    # for label, path in check_targets.items():
-    #     if path.exists():
-    #         logger.info(f"✅ {label} 확인 완료!: {path}")
-    #     else:
-    #         logger.error(f"❌ {label}을(를) 찾을 수 없음: {path}")
-    #         if path == zip_file or path == csv_file:
-    #             raise FileNotFoundError(f"필수 파일 '{label}'이(가) 없습니다.")
-    
-    # ========================================== Mlflow ==========================================
+    logger.info("==================================================")
+    logger.info("🚀 S1_FastFlow_Training: [Training Only Mode]")
+    logger.info(f"📍 학습 데이터 경로: {dataset_root}")
+    logger.info("==================================================")
+
+    if not dataset_root.exists():
+        logger.warning(f"⚠️ {dataset_root} 경로가 직접적으로 발견되지 않았습니다. 검색을 시도합니다.")
+        potential = list(base_path.rglob("resized/train/good")) 
+        if potential:
+            dataset_root = potential[0]
+            logger.info(f"✅ 실제 경로 발견: {dataset_root}")
+        else:
+            raise FileNotFoundError(f"❌ '{base_path}' 내부에 'resized/train/good' 폴더가 없습니다.")
+
+    # ================== 2. MLflow & Output 설정 ==================== #
     mlflow.start_run()
-    OUTPUT_DIR = args.output_dir
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    logger.info(f"📂 {os.path.abspath(OUTPUT_DIR)}")
+    OUTPUT_DIR = Path(args.output_dir)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    logger.info(f"🖥️ 사용 장치: {device}")
+
     try:
-        # ================== 2. 이상탐지 작업 ==================== #
+        # ================== 3. Anomalib 데이터 구성 ==================== #
+        logger.info("📥 Anomalib 데이터 모듈 구성 중...")
         
-        # ====== FastFlow 학습 ====== 
-        logger.info("📥 FastFlow 모델 및 데이터셋 구성")
-        
-        # 데이터셋 구성 (마운트된 압축해제 이미지 사용)
-        # battery-data-unzip 컨테이너에서 마운트된 이미지 사용
-        dataset_root = str(base_path)  # 마운트된 경로 직접 사용
-        logger.info(f"📂 학습 데이터 경로: {dataset_root}")
+        # 이미 전처리/리사이즈된 데이터이므로 최소한의 transform 적용
+        transform = Resize((256, 256))
         
         datamodule = Folder(
-            name="battery",
-            root=dataset_root,
-            normal_dir=".",  # 이미지가 루트에 직접 있음
+            name="battery_resized",
+            root=str(dataset_root),
+            normal_dir=".",
             train_batch_size=32,
-            eval_batch_size=8,  # OOM 방지: 검증 시 배치 줄임
+            eval_batch_size=8,
             num_workers=4,
+            augmentations=transform,
         )
-        
-        # 모델 초기화 (FastFlow - T4 GPU 최적화)
+
+        # 모델 초기화 (FastFlow)
         model = Fastflow(
             backbone="resnet18",
             flow_steps=8,
-            evaluator=False,  # gt_mask 없으므로 픽셀단위 평가 비활성화
+            evaluator=False 
         )
-        
-        # 엔진 설정 및 학습
+
+        # Engine 설정
         engine = Engine(
             max_epochs=args.epochs,
             accelerator="auto",
             devices=1,
-            default_root_dir=OUTPUT_DIR,
+            default_root_dir=str(OUTPUT_DIR),
             enable_checkpointing=True,
         )
-        
-        logger.info("🚀 학습 시작...")
+
+        # ================== 4. 모델 학습 ==================== #
+        logger.info(f"🧬 모델 학습 진행 (Epochs: {args.epochs})...")
         engine.fit(model=model, datamodule=datamodule)
-        logger.success("✅ 학습 완료!")
-        
-        # ================== 3. 모델 및 결과 저장 ==================== #
-        
-        # 모델 저장
-        model_path = f"{OUTPUT_DIR}/model.pt"
-        torch.save(model.state_dict(), model_path)
-        logger.info(f"💾 모델 저장: {model_path}")
-        
-        # 메타데이터 저장
+        logger.success("✅ 학습 프로세스 성공적으로 완료!")
+
+        # ================== 5. 모델 가중치 저장 ==================== #
+        # 이 가중치가 저장되어야 나중에 별도의 스크립트로 추론(히트맵 생성)이 가능합니다.
+        model_save_path = OUTPUT_DIR / "model.pt"
+        torch.save(model.state_dict(), model_save_path)
+        logger.info(f"💾 모델 가중치 저장 완료: {model_save_path}")
+
+        # 작업 정보 기록
         info = {
+            "experiment": "Battery_S1_AnomalyDetection",
+            "mode": "training_only",
             "model": "FastFlow",
             "backbone": "resnet18",
-            "flow_steps": 8,
-            "epochs": args.epochs,
-            "image_size": 256,
+            "dataset_path": str(dataset_root),
             "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
         }
-        with open(f"{OUTPUT_DIR}/info.json", 'w', encoding='utf-8') as f:
+        with open(OUTPUT_DIR / "info.json", 'w', encoding='utf-8') as f:
             json.dump(info, f, indent=2, ensure_ascii=False)
-        logger.info(f"📄 메타데이터 저장: {OUTPUT_DIR}/info.json")
 
-        # MLflow 아티팩트 로깅
-        mlflow.log_artifact(OUTPUT_DIR)
-        logger.success("✅ 결과 Blob 업로드 완료!")
-                
+        mlflow.log_params(info)
+        mlflow.log_artifact(str(OUTPUT_DIR))
+        logger.success("🎉 Azure ML 결과 저장 및 실험 종료!")
+
     except Exception as e:
-        logger.error(f"❌ {e}")
+        logger.error(f"❌ 오류 발생: {e}")
         raise
+    finally:
+        mlflow.end_run()
 
-    mlflow.end_run()
-    logger.success("🎉 완료!")
-
-if __name__ == "__main__": main()
+if __name__ == "__main__":
+    main()

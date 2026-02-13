@@ -20,5 +20,5 @@ outputs:
 
 compute: azureml:gpu-t4
 environment: azureml:env-yolo@latest
-experiment_name: Battery_PatchCore
-display_name: "PatchCore Training"
+experiment_name: Battery_S1_AnomalyDetection
+display_name: "S1_FastFlow_Training"

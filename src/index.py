@@ -111,12 +111,25 @@ def main():
         engine = Engine(
             max_epochs=args.epochs,
             accelerator="auto",
+<<<<<<< HEAD
             devices="auto", 
             strategy="auto", 
+=======
+            devices=4, # Use all 4 GPUs (Lightning manages spawning)
+            strategy="ddp", # Distributed Data Parallel
+>>>>>>> f13b0e57086b83c8090fa0ab81c91f51c68e3349
             default_root_dir=OUTPUT_DIR,
             enable_checkpointing=True,
 
         )
+        
+        # 💉 [Fix] DDP Multi-Process Race Condition 방지
+        # Azure ML에서 4개 프로세스가 동시에 폴더(v1)를 만들려다 FileExistsError 발생
+        # Rank 0을 제외한 프로세스는 잠시 대기시켜 충돌 방지
+        local_rank = int(os.environ.get("LOCAL_RANK", 0))
+        if local_rank != 0:
+            logger.info(f"⏳ Rank {local_rank} 대기 중... (Rank 0 디렉토리 생성 대기)")
+            time.sleep(3 + local_rank) # 순차적 진입 유도
         
         # 💉 [Optim] 메모리 단편화 방지 환경변수 설정 (경고 메시지 반영)
         os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"

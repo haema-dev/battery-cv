@@ -1,8 +1,9 @@
-﻿name: 01_Auto_Train_and_Register
+name: 01_Auto_Train_and_Register
 on:
   push:
     branches:
       - tk_test_3
+  workflow_dispatch:
 jobs:
   inference:
     runs-on: ubuntu-latest

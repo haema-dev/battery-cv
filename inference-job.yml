@@ -15,8 +15,7 @@ inputs:
     mode: ro_mount
   model:
     type: uri_file
-    # [성공 확인] 모델 로드 경로를 실제 Job ID로 명시합니다.
-    path: azureml://jobs/modest_foot_4b2xj4ntn6/outputs/outputs/model.pt
+    path: azureml:battery_fastflow_model@latest
     mode: download
 
 outputs:

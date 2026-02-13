@@ -111,7 +111,7 @@ def main():
         engine = Engine(
             max_epochs=args.epochs,
             accelerator="auto",
-            devices=4, # Use all 4 GPUs on Standard_NC64as_T4_v3
+            devices=1, # Fixed: Each process sees only 1 GPU in Azure ML (Isolation)
             strategy="ddp", # Distributed Data Parallel
             default_root_dir=OUTPUT_DIR,
             enable_checkpointing=True,

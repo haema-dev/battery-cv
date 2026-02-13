@@ -18,7 +18,7 @@ outputs:
     type: uri_folder
     mode: rw_mount
 
-compute: azureml:gpu-t4
+compute: azureml:gpu-advanced
 environment: azureml:env-yolo@latest
 experiment_name: Battery_S1_AnomalyDetection
 display_name: "S1_FastFlow_Training"

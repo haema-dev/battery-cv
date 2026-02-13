@@ -1,5 +1,6 @@
 
 import os
+# Trigger: Phase 2 Heatmap Generation Run
 import torch
 import argparse
 import mlflow

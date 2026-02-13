@@ -10,7 +10,7 @@ command: >-
 inputs:
   data:
     type: uri_folder
-    path: azureml:battery-data-resized-preprocessed@latest
+    path: azureml:battery_data_256_256@latest
     mode: ro_mount
 
 outputs:
@@ -18,10 +18,8 @@ outputs:
     type: uri_folder
     mode: rw_mount
 
-compute: azureml:gpu-advanced
-distribution:
-  type: pytorch
-  process_count_per_instance: 4
+compute: azureml:gpu-t4
+
 environment: azureml:env-yolo@latest
-experiment_name: Battery_PatchCore
-display_name: "PatchCore Training (CLAHE)"
+experiment_name: Patchcore_sungtae
+display_name: "Patchcore_sungtae"

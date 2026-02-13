@@ -27,4 +27,4 @@ outputs:
 compute: azureml:gpu-advanced
 environment: azureml:env-yolo@latest
 experiment_name: Battery_S1_AnomalyDetection
-display_name: "🔥🔥_S1_HEATMAP_FINAL_🔥🔥"
+display_name: "S1_Phase2_Heatmap_Generation"

@@ -2,10 +2,10 @@ $schema: https://azuremlschemas.azureedge.net/latest/commandJob.schema.json
 type: command
 code: src/
 command: >-
-  python index.py \
-    --data_path ${{inputs.data}} \
-    --output_dir ${{outputs.outputs}} \
-    --epochs 1
+      python index.py \
+        --data_path ${{inputs.data}} \
+        --output_dir ${{outputs.outputs}} \
+        --epochs 50
 
 inputs:
   data:

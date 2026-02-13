@@ -16,20 +16,14 @@ except ImportError:
 def find_data_root(base_path):
     """'train/good' 폴더가 포함된 최적의 경로를 찾습니다."""
     base = Path(base_path)
-    # 1. 바로 아래에 있는 경우
     if (base / "train/good").exists():
         return base
-    
-    # 2. datasets/resized/ 하위에 있는 경우 (사용자 스크린샷 구조)
     possible_sub = base / "datasets/resized"
     if (possible_sub / "train/good").exists():
         return possible_sub
-    
-    # 3. 더 깊이 있는 경우 검색
     found = list(base.glob("**/train/good"))
     if found:
         return found[0].parent.parent
-        
     return base
 
 def run_pipeline(data_path, output_dir, epochs):
@@ -43,9 +37,8 @@ def run_pipeline(data_path, output_dir, epochs):
     print(f"🛠️ Inferencer Ready: {HAS_INFERENCER}")
     print("--------------------------------------------------")
 
-    # 1. 데이터 모듈 설정 (Anomalib 1.x 최소 사양 규격)
-    # 'test_dir', 'task'에 이어 'image_size'까지 1.x 최신 버전에서는 지원되지 않음 확인
-    # 가장 필수적인 인자들로만 구성하여 호환성 극대화
+    # 1. 데이터 모듈 설정 (Anomalib 1.x 초정밀 다이어트)
+    # 모든 버전 민감 인자(task, image_size, test_dir 등)를 제거하고 최소 필수값만 유지
     datamodule = Folder(
         name="battery",
         root=str(optimized_root),
@@ -55,20 +48,20 @@ def run_pipeline(data_path, output_dir, epochs):
     )
 
     # 2. 모델 설정 (FastFlow)
-    # FastFlow 모델에서 기본적으로 256x256 등을 처리하므로 데이터에서 뺄 수 있습니다.
     model = Fastflow(backbone="resnet18", flow_steps=8)
 
-    # 3. 엔진 설정 (T4 GPU 사용)
+    # 3. 엔진 설정
+    # 'task' 인자가 Trainer까지 넘어가 에러를 유발하므로 과감히 제거 (기본값 활용)
     engine = Engine(
         max_epochs=epochs,
         default_root_dir=output_dir,
         devices=1,
-        accelerator="auto",
-        task="classification"
+        accelerator="auto"
     )
 
     # 4. 학습 시작
     print("⏳ Starting training...")
+    # datamodule에서 데이터 셋을 가져오면 엔진이 자동으로 구조 파악
     engine.fit(model=model, datamodule=datamodule)
     
     # 5. 결과물 저장

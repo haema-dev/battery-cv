@@ -114,7 +114,7 @@ def main():
             devices=1,
             default_root_dir=OUTPUT_DIR,
             enable_checkpointing=True,
-            precision="16-mixed", # Mixed Precision for memory optimization
+            limit_train_batches=0.4, # Use 40% of data (~1000 images) to fit 16GB VRAM
         )
         
         # 💉 [Optim] 메모리 단편화 방지 환경변수 설정 (경고 메시지 반영)

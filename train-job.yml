@@ -19,6 +19,9 @@ outputs:
     mode: rw_mount
 
 compute: azureml:gpu-advanced
+distribution:
+  type: pytorch
+  process_count_per_instance: 4
 environment: azureml:env-yolo@latest
 experiment_name: Battery_PatchCore
 display_name: "PatchCore Training (CLAHE)"

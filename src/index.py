@@ -28,7 +28,6 @@ def find_data_root(base_path):
     # 3. 더 깊이 있는 경우 검색
     found = list(base.glob("**/train/good"))
     if found:
-        # train/good 폴더의 부모의 부모를 반환 (예: .../resized)
         return found[0].parent.parent
         
     return base
@@ -38,28 +37,28 @@ def run_pipeline(data_path, output_dir, epochs):
     print(f"🚀 [Stage 1] FastFlow Training Pipeline (v2: 100e)")
     print(f"📍 Raw Data Path: {data_path}")
     
-    # 데이터 구조 최적화 탐색
     optimized_root = find_data_root(data_path)
     print(f"📁 Optimized Root: {optimized_root}")
     print(f"⏲️ Target Epochs: {epochs}")
     print(f"🛠️ Inferencer Ready: {HAS_INFERENCER}")
     print("--------------------------------------------------")
 
-    # 1. 데이터 모듈 설정 (Anomalib 1.x 규격)
-    # 로그 확인 결과 'task' 인자가 Folder에는 지원되지 않으므로 제거
+    # 1. 데이터 모듈 설정 (Anomalib 1.x 최소 사양 규격)
+    # 'test_dir', 'task'에 이어 'image_size'까지 1.x 최신 버전에서는 지원되지 않음 확인
+    # 가장 필수적인 인자들로만 구성하여 호환성 극대화
     datamodule = Folder(
         name="battery",
         root=str(optimized_root),
         normal_dir="train/good",
         normal_test_dir="test",
-        test_split_mode="from_dir",
-        image_size=(256, 256)
+        test_split_mode="from_dir"
     )
 
     # 2. 모델 설정 (FastFlow)
+    # FastFlow 모델에서 기본적으로 256x256 등을 처리하므로 데이터에서 뺄 수 있습니다.
     model = Fastflow(backbone="resnet18", flow_steps=8)
 
-    # 3. 엔진 설정 (Task는 여기서 정의)
+    # 3. 엔진 설정 (T4 GPU 사용)
     engine = Engine(
         max_epochs=epochs,
         default_root_dir=output_dir,

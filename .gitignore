@@ -6,3 +6,4 @@ battery-llm/__pycache__/
 battery-llm/venv/
 battery-llm/.env
 src/inference.py
+*.code-workspace

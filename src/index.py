@@ -71,8 +71,8 @@ def main():
             name="battery",
             root=dataset_root,
             normal_dir=".", 
-            train_batch_size=4, # Reverted to 4 for High-Res memory safety
-            eval_batch_size=8,
+            train_batch_size=32, # 256x256 on T4(16GB) - 충분한 여유
+            eval_batch_size=32,
             num_workers=4,
             train_augmentations=transform,
             val_augmentations=transform,
@@ -91,7 +91,7 @@ def main():
                 backbone="resnet18",
                 pre_trained=True,
                 layers=["layer2", "layer3"],
-                coreset_sampling_ratio=0.001,  # Reverted to 0.1% for High-Res OOM safety
+                coreset_sampling_ratio=0.1,  # 10% - 256x256 소형 이미지, T4(16GB) 충분
             )
 
         # ---------------------------------------------------------

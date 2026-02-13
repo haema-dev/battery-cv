@@ -62,7 +62,7 @@ def main():
         # Transform 정의 (Anomalib 2.2.0 호환)
         # image_size 인자 대신 explicit transform 사용
         transform = Compose([
-            Resize((768, 240)), # Reduced resolution to fit full dataset
+            # Resize((768, 240)), # Removed explicit resize, using dataset default (256x256)
             ToImage(), 
             ToDtype(torch.float32, scale=True),
         ])
@@ -71,7 +71,7 @@ def main():
             name="battery",
             root=dataset_root,
             normal_dir=".", 
-            train_batch_size=4,
+            train_batch_size=16,
             eval_batch_size=8,
             num_workers=4,
             train_augmentations=transform,
@@ -91,21 +91,19 @@ def main():
                 backbone="resnet18",
                 pre_trained=True,
                 layers=["layer2", "layer3"],
-                coreset_sampling_ratio=0.001,  # Reduced to 0.001 (0.1%) to prevent OOM during Sampling Matrix calc
+                coreset_sampling_ratio=0.1,  # Increased to 0.1 (10%) for low-res (256x256) inputs
             )
 
         # ---------------------------------------------------------
-        # 🔧 [Fix] 모델 내부 리사이징 로직 강제 수정
-        # 모델이 기본적으로 256x256으로 리사이징하려는 것을 방지하고,
-        # 우리가 전처리한 1024x320 해상도를 유지하도록 강제합니다.
+        # 🔧 [Fix] 모델 내부 리사이징 로직 강제 수정 (Removed for default 256x256)
         # ---------------------------------------------------------
-        if hasattr(model, "pre_processor") and hasattr(model.pre_processor, "transform"):
-            model.pre_processor.transform = Compose([
-                Resize((768, 240)),
-                ToImage(), 
-                ToDtype(torch.float32, scale=True),
-            ])
-            logger.info("🔧 모델 내부 PreProcessor를 768x240으로 강제 설정했습니다.")
+        # if hasattr(model, "pre_processor") and hasattr(model.pre_processor, "transform"):
+        #     model.pre_processor.transform = Compose([
+        #         Resize((256, 256)),
+        #         ToImage(), 
+        #         ToDtype(torch.float32, scale=True),
+        #     ])
+        #     logger.info("🔧 모델 내부 PreProcessor를 Default(256x256)로 유지합니다.")
         
         # 엔진 설정 및 학습
         engine = Engine(
@@ -137,7 +135,7 @@ def main():
             "backbone": "resnet18",
             "layers": ["layer2", "layer3"],
             "epochs": args.epochs,
-            "image_size": (768, 240),
+            "image_size": (256, 256),
             "anomalib_version": anomalib.__version__,
             "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
         }

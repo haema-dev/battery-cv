@@ -1,4 +1,5 @@
 import argparse
+# v2.1: Anomalib 1.1.3 Stabilization Fix
 import os
 from pathlib import Path
 import torch

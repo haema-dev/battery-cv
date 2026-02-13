@@ -62,7 +62,7 @@ def main():
         # Transform 정의 (Anomalib 2.2.0 호환)
         # image_size 인자 대신 explicit transform 사용
         transform = Compose([
-            Resize((1024, 320)),
+            Resize((768, 240)), # Reduced resolution to fit full dataset
             ToImage(), 
             ToDtype(torch.float32, scale=True),
         ])
@@ -101,11 +101,11 @@ def main():
         # ---------------------------------------------------------
         if hasattr(model, "pre_processor") and hasattr(model.pre_processor, "transform"):
             model.pre_processor.transform = Compose([
-                Resize((1024, 320)),
+                Resize((768, 240)),
                 ToImage(), 
                 ToDtype(torch.float32, scale=True),
             ])
-            logger.info("🔧 모델 내부 PreProcessor를 1024x320으로 강제 설정했습니다.")
+            logger.info("🔧 모델 내부 PreProcessor를 768x240으로 강제 설정했습니다.")
         
         # 엔진 설정 및 학습
         engine = Engine(
@@ -114,7 +114,7 @@ def main():
             devices=1,
             default_root_dir=OUTPUT_DIR,
             enable_checkpointing=True,
-            limit_train_batches=0.4, # Use 40% of data (~1000 images) to fit 16GB VRAM
+
         )
         
         # 💉 [Optim] 메모리 단편화 방지 환경변수 설정 (경고 메시지 반영)
@@ -137,7 +137,7 @@ def main():
             "backbone": "resnet18",
             "layers": ["layer2", "layer3"],
             "epochs": args.epochs,
-            "image_size": (1024, 320),
+            "image_size": (768, 240),
             "anomalib_version": anomalib.__version__,
             "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
         }

@@ -1,0 +1,18 @@
+﻿name: Phase2_Heatmap_Trigger
+on:
+  push:
+    branches:
+      - tk_test_3
+jobs:
+  inference:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      - name: Create Job
+        run: |
+          az extension add -n ml --yes
+          az configure --defaults group=${{ secrets.AZURE_RESOURCE_GROUP }} workspace=${{ secrets.AZURE_WORKSPACE }}
+          az ml job create --file inference-job.yml

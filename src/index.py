@@ -111,13 +111,8 @@ def main():
         engine = Engine(
             max_epochs=args.epochs,
             accelerator="auto",
-<<<<<<< HEAD
             devices="auto", 
-            strategy="auto", 
-=======
-            devices=4, # Use all 4 GPUs (Lightning manages spawning)
-            strategy="ddp", # Distributed Data Parallel
->>>>>>> f13b0e57086b83c8090fa0ab81c91f51c68e3349
+            strategy="auto",
             default_root_dir=OUTPUT_DIR,
             enable_checkpointing=True,
 

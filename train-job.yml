@@ -18,16 +18,7 @@ outputs:
     type: uri_folder
     mode: rw_mount
 
-<<<<<<< HEAD
 compute: azureml:gpu-t4
-
 environment: azureml:env-yolo@latest
 experiment_name: Patchcore_sungtae
 display_name: "Patchcore_sungtae"
-=======
-compute: azureml:gpu-advanced
-
-environment: azureml:env-yolo@latest
-experiment_name: PatchCore
-display_name: "PatchCore"
->>>>>>> f13b0e57086b83c8090fa0ab81c91f51c68e3349

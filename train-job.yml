@@ -10,7 +10,7 @@ command: >-
 inputs:
   data:
     type: uri_folder
-    path: azureml:battery-data-unzip@latest
+    path: azureml:battery_data_256_256@latest
     mode: ro_mount
 
 outputs:

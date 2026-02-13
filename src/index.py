@@ -21,13 +21,14 @@ def run_pipeline(data_path, output_dir, epochs):
     print(f"🛠️ Inferencer Ready: {HAS_INFERENCER}")
     print("--------------------------------------------------")
 
-    # 1. 데이터 모듈 설정
+    # 1. 데이터 모듈 설정 (Anomalib 1.x 최신 API 대응)
+    # 로그 확인 결과 'test_dir' 인자가 지원되지 않으므로 'normal_test_dir'로 수정
     datamodule = Folder(
         name="battery",
         root=data_path,
         normal_dir="train/good",
+        normal_test_dir="test/good",    # test_dir 대신 구체적인 경로 지정
         test_split_mode="from_dir",
-        test_dir="test",
         task="classification",
         image_size=(256, 256)
     )
@@ -35,7 +36,7 @@ def run_pipeline(data_path, output_dir, epochs):
     # 2. 모델 설정 (FastFlow)
     model = Fastflow(backbone="resnet18", flow_steps=8)
 
-    # 3. 엔진 설정 (T4 GPU 사용 예정)
+    # 3. 엔진 설정 (T4 GPU 사용)
     engine = Engine(
         max_epochs=epochs,
         default_root_dir=output_dir,
@@ -58,10 +59,11 @@ def run_pipeline(data_path, output_dir, epochs):
     
     print(f"✅ Training completed. Weights saved: {model_save_path}")
 
-    # 6. [일관성 검증] TorchInferencer로 로드 가능한지 확인 (선택적)
+    # 6. [일관성 검증] TorchInferencer로 로드 가능한지 확인
     if HAS_INFERENCER:
         try:
             print("🔍 Verifying model consistency with TorchInferencer...")
+            # 검증 시에는 cpu로 로드 테스트
             inferencer = TorchInferencer(path=model_save_path, device="cpu")
             print("✨ Success: Model is compatible with TorchInferencer API.")
         except Exception as e:

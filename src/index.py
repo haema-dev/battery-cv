@@ -5,6 +5,7 @@ import argparse
 import mlflow
 import json
 import time
+import cv2
 from loguru import logger
 from anomalib.models import Fastflow
 from anomalib.data import Folder
@@ -23,33 +24,43 @@ def main():
     base_path = Path(args.data_path)
     
     logger.info("==================================================")
-    logger.info("🚀 S1_FastFlow_Training: [Full Training Mode]")
+    logger.info("🚀 S1_FastFlow_Training: [Targeted Path Mode]")
     logger.info(f"📍 마운트 루트: {base_path}")
     logger.info("==================================================")
 
-    # 📂 데이터 경로 탐색 로직 (이전 성공한 Robust logic 유지)
+    # 📂 데이터 경로 탐색 로직 (사용자님의 우려를 반영하여 정밀화)
+    # 원본 데이터와 섞이지 않도록 'good' 폴더를 최우선으로 찾습니다.
     dataset_root = None
     
-    # [우선순위 1] 명시적 경로
-    explicit_path = base_path / "datasets" / "resized" / "train" / "good"
-    if explicit_path.exists() and any(explicit_path.iterdir()):
-        dataset_root = explicit_path
-        logger.info(f"✅ 명시적 경로 발견: {dataset_root}")
+    # [1순위] 우리가 이전에 성공했던 경로 패턴 (train/good)
+    for root, dirs, files in os.walk(base_path):
+        root_path = Path(root)
+        parent_name = root_path.parent.name.lower()
+        current_name = root_path.name.lower()
+        
+        # 'train' 폴더 아래의 'good' 폴더를 찾으면 256 리사이즈 폴더일 확률이 매우 높음
+        if current_name == "good" and parent_name == "train":
+            img_count = len([f for f in files if f.lower().endswith(('.png', '.jpg', '.jpeg'))])
+            if img_count > 0:
+                dataset_root = root_path
+                logger.info(f"🎯 [Targeted] 최적의 학습 경로 발견: {dataset_root} ({img_count}장)")
+                break
 
-    # [우선순위 2] 키워드 조합 검색
+    # [2순위] 'good'이라는 이름이 포함된 모든 폴더 중 이미지가 있는 곳
     if not dataset_root:
         for root, dirs, files in os.walk(base_path):
-            root_path = Path(root)
-            parts = [p.lower() for p in root_path.parts]
-            if "resized" in parts and "good" in parts:
+            if "good" in root.lower():
                 img_count = len([f for f in files if f.lower().endswith(('.png', '.jpg', '.jpeg'))])
                 if img_count > 0:
-                    dataset_root = root_path
-                    logger.info(f"🎯 자동 탐색으로 경로 발견: {dataset_root} ({img_count}장)")
+                    dataset_root = Path(root)
+                    logger.info(f"🎯 [Fallback] 'good' 키워드 폴더 발견: {dataset_root} ({img_count}장)")
                     break
 
     if not dataset_root:
-        raise FileNotFoundError(f"❌ '{base_path}' 내부에서 학습용 이미지 폴더를 찾을 수 없습니다.")
+        # 디버깅을 위해 현재 구조를 간단히 출력
+        logger.error("❌ 'good' 혹은 'train/good' 구조의 이미지를 찾을 수 없습니다.")
+        logger.info(f"현재 루트({base_path})의 직계 자식들: {os.listdir(base_path)}")
+        raise FileNotFoundError(f"❌ '{base_path}' 내부에 학습용 (Good) 이미지 폴더가 없습니다.")
 
     # ================== 2. MLflow & Output 설정 ==================== #
     mlflow.start_run()
@@ -61,36 +72,32 @@ def main():
 
     try:
         # ================== 3. Anomalib 데이터 구성 ==================== #
-        logger.info(f"📥 데이터셋 로드: {dataset_root}")
-        transform = Resize((256, 256))
+        logger.info(f"📥 데이터셋 로딩 중: {dataset_root}")
         
+        # Anomalib은 normal_dir을 기준으로 학습하므로, root를 지정하고 내부를 "."으로 설정
         datamodule = Folder(
             name="battery_resized",
             root=str(dataset_root),
-            normal_dir=".",
+            normal_dir=".", 
             train_batch_size=32,
             eval_batch_size=8,
             num_workers=4,
-            augmentations=transform,
+            augmentations=Resize((256, 256)),
         )
 
         model = Fastflow(backbone="resnet18", flow_steps=8, evaluator=False)
         engine = Engine(max_epochs=args.epochs, accelerator="auto", devices=1, default_root_dir=str(OUTPUT_DIR))
 
         # ================== 4. 모델 학습 ==================== #
-        logger.info(f"🧬 모델 학습 시작 (Target Epochs: {args.epochs})...")
+        logger.info(f"🧬 S1 모델 학습 시작 (Target Epochs: {args.epochs})...")
         engine.fit(model=model, datamodule=datamodule)
-        logger.success(f"✅ {args.epochs} 에폭 학습을 무사히 완료했습니다!")
+        logger.success(f"✅ {args.epochs} 에폭 학습이 성공적으로 끝났습니다!")
 
         # ================== 5. 결과 저장 ==================== #
-        model_save_path = OUTPUT_DIR / "model.pt"
-        torch.save(model.state_dict(), model_save_path)
-        logger.info(f"💾 모델 가중치 저장 완료: {model_save_path}")
-
+        torch.save(model.state_dict(), OUTPUT_DIR / "model.pt")
         info = {
-            "experiment": "Battery_S1_AnomalyDetection",
+            "dataset_path": str(dataset_root),
             "epochs": args.epochs,
-            "dataset": str(dataset_root),
             "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
         }
         with open(OUTPUT_DIR / "info.json", 'w', encoding='utf-8') as f:
@@ -98,10 +105,10 @@ def main():
 
         mlflow.log_params(info)
         mlflow.log_artifact(str(OUTPUT_DIR))
-        logger.success("🎉 모든 프로세스가 성공적으로 종료되었습니다!")
+        logger.success("🎉 모든 산출물이 Azure ML에 저장되었습니다.")
 
     except Exception as e:
-        logger.error(f"❌ 오류 발생: {e}")
+        logger.error(f"❌ 학습 중 오류 발생: {e}")
         raise
     finally:
         mlflow.end_run()

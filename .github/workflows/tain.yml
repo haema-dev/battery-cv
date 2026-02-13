@@ -26,9 +26,9 @@ jobs:
             group=${{ secrets.AZURE_RESOURCE_GROUP }} \
             workspace=${{ secrets.AZURE_WORKSPACE }}
 
-      - name: Run Job
+      - name: Run Inference Job
         run: |
-          JOB_NAME=$(az ml job create --file train-job.yml --query name -o tsv)
+          JOB_NAME=$(az ml job create --file inference-job.yml --query name -o tsv)
 
           echo "JOB_NAME=$JOB_NAME" >> $GITHUB_ENV
           echo "✅ Job 제출 완료!"

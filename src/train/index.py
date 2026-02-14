@@ -14,8 +14,9 @@ from anomalib.data import Folder
 from anomalib.engine import Engine
 from anomalib.loggers import AnomalibMLFlowLogger
 from pathlib import Path
-from torchvision.transforms.v2 import Resize
+from torchvision.transforms.v2 import Compose, Normalize, Resize
 from lightning.pytorch.callbacks import EarlyStopping
+from anomalib.metrics import AUROC, F1Score
 
 def set_seed(seed):
     random.seed(seed)
@@ -32,6 +33,8 @@ def main():
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--backbone", type=str, default="resnet18", help="Feature extractor backbone")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
+    parser.add_argument("--lr", type=float, default=0.0001, help="Learning rate (Lowered for stability)")
+    parser.add_argument("--weight_decay", type=float, default=1e-5, help="Weight decay")
 
     args = parser.parse_args()
     set_seed(args.seed)
@@ -98,6 +101,12 @@ def main():
         
         logger.info(f" 검증용 불량 카테고리 자동 감지: {abnormal_dirs}")
 
+        # [Stability] Add Normalization for pre-trained backbones
+        transform = Compose([
+            Resize((256, 256)),
+            Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
+
         datamodule = Folder(
             name="battery",
             root=str(dataset_root),
@@ -107,13 +116,21 @@ def main():
             train_batch_size=32,
             eval_batch_size=8,
             num_workers=4,
-            augmentations=Resize((256, 256)),
-            seed=args.seed
+            augmentations=transform,
+            seed=args.seed,
+            task="classification"
         )
 
         # ================== 3. 모델 및 콜백 설정 ==================== #
         logger.info(f"🏗️ 모델 생성 중: FastFlow (Backbone: {args.backbone})")
-        model = Fastflow(backbone=args.backbone, flow_steps=8, evaluator=True)
+        # evaluator=False prevents internal metric initialization that might expect gt_mask
+        model = Fastflow(
+            backbone=args.backbone, 
+            flow_steps=8, 
+            evaluator=False,
+            lr=args.lr,
+            weight_decay=args.weight_decay
+        )
         
         # Early Stopping 설정: 성능 향상이 없으면 조기 종료하여 자원 절약
         early_stop = EarlyStopping(
@@ -125,13 +142,23 @@ def main():
 
         mlflow_logger = AnomalibMLFlowLogger(experiment_name="Battery_Anomaly", save_dir=str(OUTPUT_DIR))
         
+        # [Definitive Metric Fix] Explicitly define metrics to avoid gt_mask request
+        image_metrics = [
+            AUROC(fields=["pred_score", "gt_label"]),
+            F1Score(fields=["pred_score", "gt_label"])
+        ]
+
         engine = Engine(
             max_epochs=args.epochs,
             accelerator="auto",
             devices=1,
             default_root_dir=str(OUTPUT_DIR),
             logger=mlflow_logger,
-            callbacks=[early_stop]
+            callbacks=[early_stop],
+            image_metrics=image_metrics,
+            pixel_metrics=None,
+            gradient_clip_val=1.0,
+            task="classification"
         )
 
         # ================== 4. 학습 및 저장 ==================== #

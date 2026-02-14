@@ -11,8 +11,7 @@ inputs:
     
   model:
     type: uri_file
-    # Stage 1 작업의 결과물 파일(model.pt)을 직접 지목합니다 (우회 전략)
-    path: azureml://jobs/S1_FastFlow_Training_v2_100e/outputs/outputs/model.pt
+    path: azureml:battery_fastflow_model@latest
     mode: download
 
 outputs:

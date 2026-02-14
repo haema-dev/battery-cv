@@ -33,9 +33,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install azure-ai-ml azure-identity anomalib==1.1.3 loguru mlflow
 
+      - name: Register Model from Stage 1
+        run: |
+          # 1단계 결과물을 'battery_fastflow_model'이라는 이름으로 에저에 정식 등록합니다.
+          # 이미 등록되어 있어도 새로운 버전으로 갱신하여 깃허브 액션이 인식하게 합니다.
+          az ml model create --name battery_fastflow_model \
+            --path azureml://jobs/S1_FastFlow_Training_v2_100e/outputs/outputs/model.pt \
+            --type custom_model || echo "Model already registered or failed, continuing..."
+
       - name: Run Stage 2 Evaluation
         run: |
-          # inference-job.yml을 사용하여 index.py (구 inference.py) 실행
+          # 등록된 모델을 사용하여 index.py (구 inference.py) 실행
           JOB_NAME=$(az ml job create --file inference-job.yml --query name -o tsv)
           echo "JOB_NAME=$JOB_NAME" >> $GITHUB_ENV
           echo "✅ [Stage 2] Evaluation Job Submitted: $JOB_NAME"

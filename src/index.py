@@ -56,6 +56,19 @@ def run_evaluation(data_path, model_path, output_dir):
             logger.error(f"❌ 모델 파일을 찾을 수 없습니다: {model_path}")
             return
             
+        # [SURGEON PATCH] 'model' key missing 대응
+        # TorchInferencer는 내부적으로 ckpt['model']을 찾으려 하지만,
+        # 간혹 ckpt 자체가 state_dict이거나 다른 구조일 경우 에러가 발생합니다.
+        ckpt = torch.load(model_path, map_location="cpu")
+        if isinstance(ckpt, dict) and "model" not in ckpt:
+            logger.warning("⚠️ 'model' key가 없습니다. 자동 구조 복원 시도...")
+            # 만약 ckpt 자체가 state_dict인 경우 'model' key로 감싸서 임시 파일 생성
+            temp_model_path = "/tmp/fixed_model.pt"
+            os.makedirs("/tmp", exist_ok=True)
+            torch.save({"model": ckpt}, temp_model_path)
+            model_path = temp_model_path
+            logger.success(f"✅ 구조 복원 완료: {model_path}")
+
         inferencer = TorchInferencer(path=model_path, device=device)
         logger.success("✅ 모델 로드 성공")
     except Exception as e:

@@ -1,11 +1,7 @@
 $schema: https://azuremlschemas.azureedge.net/latest/commandJob.schema.json
 type: command
 code: src/
-command: >-
-  python index.py 
-  --data_path ${{inputs.data}} 
-  --model_path ${{inputs.model}} 
-  --output_dir ${{outputs.inference_results}}
+command: python index.py --data_path ${{inputs.data}} --model_path ${{inputs.model}} --output_dir ${{outputs.inference_results}}
 
 inputs:
   data:

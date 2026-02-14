@@ -1,92 +1,148 @@
-import os, torch, argparse, mlflow, json, time
-from loguru import logger
-from anomalib.models import Fastflow
-from anomalib.data import Folder
-from anomalib.engine import Engine
-from anomalib.models import Patchcore
+import argparse
+import os
+import sys
+import json
+import time
 from pathlib import Path
-import numpy as np, cv2
-import adlfs
-import fsspec
+import torch
+import cv2
+import numpy as np
+from loguru import logger
+from collections import defaultdict
 
+# Anomalib TorchInferencer 사용
+try:
+    from anomalib.deploy import TorchInferencer
+    INFERENCER_AVAILABLE = True
+except ImportError:
+    INFERENCER_AVAILABLE = False
 
-def main():
-
-    # ================== 1. input/output 설정 ==================== #
-    parser = argparse.ArgumentParser()    
-    parser.add_argument("--data_path", type=str, help="Path to mounted data asset")
-    parser.add_argument('--output_dir', type=str, default='./outputs')
-    parser.add_argument("--epochs", type=int, default=10)    
-
-    args = parser.parse_args()
-    base_path = Path(args.data_path)
-
-    # ZIP 및 CSV 경로 설정
-    zip_folder_rel = "3.개방데이터/1.데이터/Training/01.원천데이터"
-    zip_dir = base_path / zip_folder_rel
-    zip_file = zip_dir / "TS_Exterior_Img_Datasets_images_3.zip"
-    csv_file = base_path / "good_list.csv"
-
-    # ==========================================
-    # 🔍 근본 해결: 구조 확인 + 존재 여부 검증
-    # ==========================================
-    logger.info(f"📍 마운트 루트 확인: {args.data_path}")
+def find_validation_root(base_path):
+    """사용자님이 지정하신 'datasets/256x256 fit/validation' 경로를 정밀 탐색합니다."""
+    base = Path(base_path).resolve()
+    logger.info(f"🔎 검증 데이터 탐색 시작: {base}")
     
-    if os.path.exists(args.data_path):
-        import subprocess
-        # 폴더 구조를 2단계까지 싹 훑어서 로그에 남깁니다. (경로가 꼬였는지 눈으로 확인용)
-        result = subprocess.run(['ls', '-R', args.data_path], capture_output=True, text=True)
-        logger.info(f"📂 실제 마운트된 파일 구조:\n{result.stdout[:2000]}") # 넉넉하게 출력
-    
-    # 실제 파일 존재 여부 체크 (이게 없으면 나중에 터짐)
-    check_targets = {"데이터 디렉토리": zip_dir, "ZIP 파일": zip_file, "CSV 데이터": csv_file}
-    for label, path in check_targets.items():
-        if path.exists():
-            logger.info(f"✅ {label} 확인 완료!: {path}")
-        else:
-            logger.error(f"❌ {label}을(를) 찾을 수 없음: {path}")
-            # 필수 파일이 없으면 여기서 즉시 멈춰야 합니다.
-            if path == zip_file or path == csv_file:
-                raise FileNotFoundError(f"필수 파일 '{label}'이(가) 없습니다. 'ls -R' 로그를 보고 경로를 수정하세요.")
-    
-    # ========================================== Mlflow ==========================================
-    mlflow.start_run()
-    OUTPUT_DIR = args.output_dir
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    logger.info(f"📂 {os.path.abspath(OUTPUT_DIR)}")
+    # 1순위: 'datasets/256x256 fit/validation' 정밀 탐색
+    for p in base.rglob("*/validation"):
+        if "256x256 fit" in str(p):
+            logger.success(f"✅ 검증 데이터셋 발견: {p}")
+            return p
+            
+    # 2순위: 'validation' 폴더 탐색
+    for p in base.rglob("validation"):
+        if p.is_dir():
+            logger.warning(f"⚠️ 'validation' 폴더 발견: {p}")
+            return p
+            
+    logger.error("❌ 'validation' 폴더를 찾을 수 없습니다.")
+    return None
+
+def run_evaluation(data_path, model_path, output_dir):
+    logger.info("==================================================")
+    logger.info("� STAGE 2: INFERENCE & PERFORMANCE EVALUATION")
+    logger.info("==================================================")
+
+    if not INFERENCER_AVAILABLE:
+        logger.error("❌ 'TorchInferencer'를 로드할 수 없습니다.")
+        return
+
+    # 1. Inferencer 초기화
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    logger.info(f"🖥️ 사용 장치: {device}")
     
     try:
-        # ================== 2. 이상탐지 작업 ==================== #
-        
-        # ====== 삭제하고 코드 작성 부분 ====== 
-        logger.info("📥 Patchcore 로드")
-        model = Patchcore(backbone="resnet18", pre_trained=True)
-
-        img = np.random.randint(50, 150, (256, 256, 3), dtype=np.uint8)
-        cv2.rectangle(img, (100, 100), (200, 200), (255, 0, 0), 3)
-        score = np.random.random() * 0.3 + 0.2
-        result = img.copy()
-        label, color = ("ANOMALY", (0,0,255)) if score > 0.4 else ("NORMAL", (0,255,0))
-        cv2.putText(result, f"{label} {score:.3f}", (50, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
-        # ====== 여기까지 =======
-
-        # mlflow 에 추가할 결과들이 있으면 추가해도 됨. 없으면 삭제.
-        cv2.imwrite(f"{OUTPUT_DIR}/result.jpg", result)
-        model_path = f"{OUTPUT_DIR}/model.pt"
-        torch.save(model.state_dict(), model_path)
-        with open(f"{OUTPUT_DIR}/info.json", 'w') as f:
-            json.dump({"backbone": "resnet18", "score": float(score)}, f)
-
-
-        # ================== 3. output blob mount ==================== #
-        logger.success(f"✅ {score:.3f} ({label})")
-        mlflow.log_artifact(OUTPUT_DIR)
-                
+        inferencer = TorchInferencer(path=model_path, device=device)
+        logger.success("✅ 모델 로드 성공")
     except Exception as e:
-        logger.error(f"❌ {e}")
-        raise
+        logger.error(f"❌ 모델 로드 실패: {e}")
+        return
 
-    mlflow.end_run()
-    logger.success("🎉 완료!")
+    # 2. 경로 설정
+    validation_root = find_validation_root(data_path)
+    if not validation_root: return
+    
+    output_base = Path(output_dir)
+    output_base.mkdir(parents=True, exist_ok=True)
 
-if __name__ == "__main__": main()
+    # 3. 평가 데이터 초기화 (Confusion Matrix용)
+    # 정답(Actual): 'good' -> 0, 'damaged/pollution' -> 1
+    # 예측(Predicted): Anomaly Score 기반 판단
+    results_summary = []
+    matrix = defaultdict(int) # TN, FP, FN, TP
+
+    # 4. 카테고리 순회
+    categories = [d for d in validation_root.iterdir() if d.is_dir()]
+    logger.info(f"📂 카테고리 목록: {[c.name for c in categories]}")
+
+    for cat_dir in categories:
+        cat_name = cat_dir.name
+        is_actual_anomaly = 0 if cat_name.lower() == "good" else 1
+        
+        cat_output = output_base / "heatmaps" / cat_name
+        cat_output.mkdir(parents=True, exist_ok=True)
+        
+        img_files = list(cat_dir.glob("*.jpg")) + list(cat_dir.glob("*.png")) + list(cat_dir.glob("*.jpeg"))
+        logger.info(f"🔍 {cat_name} 처리 중... ({len(img_files)}장)")
+
+        for img_path in img_files:
+            try:
+                # 추론 수행
+                prediction = inferencer.predict(image=str(img_path))
+                
+                # 시각화 저장 (Heatmap)
+                heatmap = prediction.heatmap
+                cv2.imwrite(str(cat_output / f"heatmap_{img_path.name}"), heatmap)
+                
+                # 분류 결과 추출 (Anomalib 1.1.x 기준)
+                # pred_label: 0(정상), 1(불량)
+                pred_label = int(prediction.pred_label) if hasattr(prediction, 'pred_label') else (1 if prediction.pred_score > 0.5 else 0)
+                pred_score = float(prediction.pred_score)
+
+                # 메트릭 업데이트 (Confusion Matrix)
+                if is_actual_anomaly == 0: # 실제 정상
+                    if pred_label == 0: matrix["TN"] += 1
+                    else: matrix["FP"] += 1
+                else: # 실제 불량
+                    if pred_label == 1: matrix["TP"] += 1
+                    else: matrix["FN"] += 1
+                
+                results_summary.append({
+                    "image": img_path.name,
+                    "actual": "Anomaly" if is_actual_anomaly else "Normal",
+                    "predicted": "Anomaly" if pred_label else "Normal",
+                    "score": pred_score
+                })
+
+            except Exception as e:
+                logger.warning(f"⚠️ 처리 실패 ({img_path.name}): {e}")
+
+    # 5. 최종 리포트 생성
+    total = sum(matrix.values())
+    accuracy = (matrix["TP"] + matrix["TN"]) / total if total > 0 else 0
+    
+    logger.info("--------------------------------------------------")
+    logger.info("📊 STAGE 2 EVALUATION REPORT")
+    logger.info(f"✅ Accuracy: {accuracy:.4f}")
+    logger.info(f"📝 Confusion Matrix: {dict(matrix)}")
+    logger.info("--------------------------------------------------")
+
+    # 결과 파일 저장
+    report = {
+        "metrics": dict(matrix),
+        "overall_accuracy": accuracy,
+        "details": results_summary
+    }
+    with open(output_base / "evaluation_report.json", "w") as f:
+        json.dump(report, f, indent=4)
+    
+    logger.success(f"🎉 Stage 2 완료. 히트맵 및 리포트 저장됨: {output_dir}")
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data_path", type=str, required=True)
+    parser.add_argument("--model_path", type=str, required=True)
+    parser.add_argument("--output_dir", type=str, required=True)
+    args = parser.parse_args()
+    
+    sys.stdout.reconfigure(line_buffering=True)
+    run_evaluation(args.data_path, args.model_path, args.output_dir)

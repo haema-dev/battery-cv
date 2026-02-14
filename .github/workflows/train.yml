@@ -1,0 +1,41 @@
+name: 02_Stage2_Evaluation_and_Heatmap
+on:
+  push:
+    branches:
+      - tk_test_4
+  workflow_dispatch:
+
+jobs:
+  inference:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Install Azure ML CLI
+        run: |
+          az extension add -n ml --yes
+          az config set extension.dynamic_install_allow_preview=true
+
+      - name: Configure Azure ML
+        run: |
+          az configure --defaults \
+            group=${{ secrets.AZURE_RESOURCE_GROUP }} \
+            workspace=${{ secrets.AZURE_WORKSPACE }}
+
+      - name: Setup Environment
+        run: |
+          python -m pip install --upgrade pip
+          pip install azure-ai-ml azure-identity anomalib==1.1.3 loguru mlflow
+
+      - name: Run Stage 2 Evaluation
+        run: |
+          # inference-job.yml을 사용하여 index.py (구 inference.py) 실행
+          JOB_NAME=$(az ml job create --file inference-job.yml --query name -o tsv)
+          echo "JOB_NAME=$JOB_NAME" >> $GITHUB_ENV
+          echo "✅ [Stage 2] Evaluation Job Submitted: $JOB_NAME"

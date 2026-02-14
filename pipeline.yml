@@ -23,7 +23,7 @@ jobs:
   # 1-1단계: 학습 데이터 전처리
   preprocess_train_step:
     type: command
-    code: src/
+    code: src/preprocess
     command: >-
       python preprocess_entry.py 
       --data_path ${{inputs.data_path}} 
@@ -39,7 +39,7 @@ jobs:
   # 1-2단계: 테스트 데이터 전처리
   preprocess_test_step:
     type: command
-    code: src/
+    code: src/preprocess
     command: >-
       python preprocess_entry.py 
       --data_path ${{inputs.data_path}} 
@@ -55,7 +55,7 @@ jobs:
   # 2단계: 학습 (전처리된 학습 데이터 사용)
   train_step:
     type: command
-    code: src/
+    code: src/train
     command: >-
       python index.py 
       --data_path ${{inputs.data_path}} 
@@ -74,7 +74,7 @@ jobs:
   # 3단계: 추론 (전처리된 테스트 데이터 + 학습된 모델 사용)
   inference_step:
     type: command
-    code: src/
+    code: src/inference
     command: >-
       python inference.py 
       --data_path ${{inputs.data_path}} 

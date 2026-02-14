@@ -10,7 +10,7 @@ inputs:
     mode: ro_mount
     
   model:
-    type: uri_file
+    type: custom_model
     path: azureml:battery_fastflow_model@latest
     mode: download
 

@@ -34,22 +34,25 @@ jobs:
           pip install azure-ai-ml azure-identity anomalib==1.1.3 loguru mlflow
 
       - name: Register Model from Stage 1
+        id: register_model
         run: |
-          echo "🚀 Registering model from Job: S1_FastFlow_Training_v2_100e"
-          # 1단계 결과물을 'battery_fastflow_model'이라는 이름으로 에저에 정식 등록합니다.
-          # 실패 시 에러가 나도록 하여 파이프라인이 즉시 중단되게 합니다.
-          az ml model create --name battery_fastflow_model \
-            --path azureml://jobs/S1_FastFlow_Training_v2_100e/outputs/outputs/model.pt \
-            --type custom_model
-
-      - name: Verify Model Registration
-        run: |
-          echo "🔍 Verifying battery_fastflow_model..."
-          az ml model show --name battery_fastflow_model --label latest
+          echo "🚀 Registering model from Job: dynamic_juice_f035fsld3z"
+          # 1단계 결과물을 'battery_fastflow_model'이라는 이름으로 등록합니다.
+          # 사용자님께서 확인하신 model.pt 가중치 파일을 정확히 타겟팅합니다.
+          REG_OUTPUT=$(az ml model create --name battery_fastflow_model \
+            --path azureml://jobs/dynamic_juice_f035fsld3z/outputs/outputs/model.pt \
+            --type custom_model -o json)
+          
+          VERSION=$(echo $REG_OUTPUT | jq -r '.version')
+          echo "MODEL_VERSION=$VERSION" >> $GITHUB_ENV
+          echo "✅ Model Registered Successfully. Version: $VERSION"
 
       - name: Run Stage 2 Evaluation
         run: |
-          # 등록된 모델을 사용하여 index.py (구 inference.py) 실행
-          JOB_NAME=$(az ml job create --file inference-job.yml --query name -o tsv)
+          echo "📊 Running Stage 2 (T4) with Model Version: ${{ env.MODEL_VERSION }}"
+          JOB_NAME=$(az ml job create --file inference-job.yml \
+            --set inputs.model.path=azureml:battery_fastflow_model:${{ env.MODEL_VERSION }} \
+            --query name -o tsv)
+          
           echo "JOB_NAME=$JOB_NAME" >> $GITHUB_ENV
           echo "✅ [Stage 2] Evaluation Job Submitted: $JOB_NAME"

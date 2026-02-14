@@ -112,8 +112,8 @@ def main():
         )
 
         # ================== 3. 모델 및 콜백 설정 ==================== #
-        logger.info(f" 모델 생성 중: FastFlow (Backbone: {args.backbone})")
-        model = Fastflow(backbone=args.backbone, flow_steps=8, evaluator=False)
+        logger.info(f"🏗️ 모델 생성 중: FastFlow (Backbone: {args.backbone})")
+        model = Fastflow(backbone=args.backbone, flow_steps=8, evaluator=True)
         
         # Early Stopping 설정: 성능 향상이 없으면 조기 종료하여 자원 절약
         early_stop = EarlyStopping(
@@ -131,7 +131,8 @@ def main():
             devices=1,
             default_root_dir=str(OUTPUT_DIR),
             logger=mlflow_logger,
-            callbacks=[early_stop]
+            callbacks=[early_stop],
+            pixel_metrics=None
         )
 
         # ================== 4. 학습 및 저장 ==================== #

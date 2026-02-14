@@ -37,8 +37,20 @@ def run_inference(data_path, model_path, output_dir, skip_preprocess=False):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"🖥️ Using device: {device}")
     
+    model_path_obj = Path(model_path)
+    if model_path_obj.is_dir():
+        # 폴더가 오면 내부의 .ckpt 또는 .pt 파일을 찾습니다.
+        ckpt_files = list(model_path_obj.glob("*.ckpt")) + list(model_path_obj.glob("*.pt"))
+        if not ckpt_files:
+            print(f"❌ Error: No checkpoint file found in {model_path}")
+            return
+        actual_model_file = ckpt_files[0]
+        print(f"📍 Found model file: {actual_model_file}")
+    else:
+        actual_model_file = model_path_obj
+
     inferencer = TorchInferencer(
-        path=model_path,
+        path=str(actual_model_file),
         device=device
     )
 

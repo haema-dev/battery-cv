@@ -13,7 +13,6 @@ inputs:
 
 outputs:
   pipeline_output:
-    mode: rw_mount
     type: uri_folder
 
 settings:
@@ -78,12 +77,16 @@ jobs:
     command: >-
       python inference.py 
       --data_path ${{inputs.data_path}} 
-      --model_path ${{inputs.model_path}}/model.ckpt
+      --model_path ${{inputs.model_path}}
       --output_dir ${{outputs.inference_results}}
       --skip_preprocess
     inputs:
-      data_path: ${{parent.jobs.preprocess_test_step.outputs.preprocessed_data}}
-      model_path: ${{parent.jobs.train_step.outputs.model_output}}
+      data_path: 
+        type: uri_folder
+        path: ${{parent.jobs.preprocess_test_step.outputs.preprocessed_data}}
+      model_path: 
+        type: uri_folder
+        path: ${{parent.jobs.train_step.outputs.model_output}}
     outputs:
       inference_results: ${{parent.outputs.pipeline_output}}
     compute: azureml:gpu-t4

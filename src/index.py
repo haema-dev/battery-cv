@@ -20,7 +20,7 @@ except ImportError:
 def find_validation_root(base_path):
     """사용자님이 지정하신 'datasets/256x256 fit/validation' 경로를 정밀 탐색합니다."""
     base = Path(base_path).resolve()
-    logger.info(f"🔎 검증 데이터 탐색 시작: {base}")
+    logger.info(f"� 검증 데이터 탐색 시작: {base}")
     
     # 1순위: 'datasets/256x256 fit/validation' 정밀 탐색
     for p in base.rglob("*/validation"):
@@ -39,38 +39,49 @@ def find_validation_root(base_path):
 
 def run_evaluation(data_path, model_path, output_dir):
     logger.info("==================================================")
-    logger.info("🚀 STAGE 2: INFERENCE & PERFORMANCE EVALUATION")
+    logger.info("� STAGE 2: INFERENCE & PERFORMANCE EVALUATION")
     logger.info("==================================================")
 
     if not INFERENCER_AVAILABLE:
         logger.error("❌ 'TorchInferencer'를 로드할 수 없습니다.")
         return
 
-    # 1. Inferencer 초기화
+    # 1. 모델 수동 조립 (Architecture Reconstruction)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     logger.info(f"🖥️ 사용 장치: {device}")
     
     try:
-        # 모델 경로 존재 확인
+        from anomalib.models import Fastflow
+        
+        # [RECONSTRUCTION] 설계도(뼈대) 먼저 세우기
+        logger.info("🏗️ 모델 설계도(Fastflow-ResNet18) 기반 뼈대 생성 중...")
+        model = Fastflow(backbone="resnet18")
+        
+        # 가중치 파일 로드
         if not os.path.exists(model_path):
             logger.error(f"❌ 모델 파일을 찾을 수 없습니다: {model_path}")
             return
             
-        # [SURGEON PATCH] 'model' key missing 대응
-        # TorchInferencer는 내부적으로 ckpt['model']을 찾으려 하지만,
-        # 간혹 ckpt 자체가 state_dict이거나 다른 구조일 경우 에러가 발생합니다.
         ckpt = torch.load(model_path, map_location="cpu")
-        if isinstance(ckpt, dict) and "model" not in ckpt:
-            logger.warning("⚠️ 'model' key가 없습니다. 자동 구조 복원 시도...")
-            # 만약 ckpt 자체가 state_dict인 경우 'model' key로 감싸서 임시 파일 생성
-            temp_model_path = "/tmp/fixed_model.pt"
-            os.makedirs("/tmp", exist_ok=True)
-            torch.save({"model": ckpt}, temp_model_path)
-            model_path = temp_model_path
-            logger.success(f"✅ 구조 복원 완료: {model_path}")
+        
+        # 가중치 입히기 (state_dict 추출)
+        state_dict = ckpt.get("state_dict", ckpt)
+        if "model" in state_dict:
+            state_dict = state_dict["model"]
+            
+        # 뼈대에 지능(가중치) 주입
+        model.load_state_dict(state_dict, strict=False)
+        model.eval().to(device)
+        logger.success("✅ 100에폭 가중치 조립 완료!")
+
+        # 조립된 모델을 추론 도구에 전달하기 위해 임시 저장
+        temp_model_path = "/tmp/reconstructed_model.pt"
+        os.makedirs("/tmp", exist_ok=True)
+        torch.save({"model": model}, temp_model_path)
+        model_path = temp_model_path
 
         inferencer = TorchInferencer(path=model_path, device=device)
-        logger.success("✅ 모델 로드 성공")
+        logger.success("✅ 최종 모델 로드 성공")
     except Exception as e:
         logger.error(f"❌ 모델 로드 실패: {e}")
         return

@@ -117,8 +117,7 @@ def main():
             eval_batch_size=8,
             num_workers=4,
             augmentations=transform,
-            seed=args.seed,
-            task="classification"
+            seed=args.seed
         )
 
         # ================== 3. 모델 및 콜백 설정 ==================== #

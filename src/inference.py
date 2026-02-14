@@ -5,35 +5,38 @@ import torch
 import cv2
 import numpy as np
 
-# Anomalib 공식 문서 추천: 추론 전용으로 설계된 TorchInferencer 사용
-# Reference: https://anomalib.readthedocs.io/en/latest/guides/inference.html
 try:
     from anomalib.deploy import TorchInferencer
     INFERENCER_AVAILABLE = True
 except ImportError:
-    # v1.x 일부 버전 또는 환경에 따라 경로가 다를 수 있음 대비
     INFERENCER_AVAILABLE = False
 
-def run_inference(data_path, model_path, output_dir):
+try:
+    from preprocess import preprocess_image
+except ImportError:
+    print("⚠️ Warning: 'src/preprocess.py' not found. Ensure it exists.")
+    preprocess_image = None
+
+def run_inference(data_path, model_path, output_dir, skip_preprocess=False):
     """
-    Anomalib TorchInferencer를 사용한 고수준 추론 로직.
-    임의의 로직 대신 라이브러리 제공 기능을 최우선으로 사용합니다.
+    Runs inference using Anomalib TorchInferencer.
+    skip_preprocess: If True, skips custom CLAHE/Resize (use for pipeline output).
     """
     print("--------------------------------------------------")
-    print(f"🚀 [Phase 2] Heatmap Generation Starting")
+    print(f"🚀 [Phase 2] Inference & Heatmap Generation")
     print(f"📦 Model: {model_path}")
     print(f"📂 Data: {data_path}")
+    print(f"⚙️ Skip Preprocess: {skip_preprocess}")
     print("--------------------------------------------------")
 
     if not INFERENCER_AVAILABLE:
-        print("❌ Error: 'anomalib.deploy.TorchInferencer'를 로드할 수 없습니다. 패키지 설치를 확인하세요.")
+        print("❌ Error: 'anomalib.deploy.TorchInferencer' could not be loaded.")
         return
 
-    # 1. Inferencer 초기화 (CPU/GPU 자동 감지)
+    # 1. Initialize Inferencer
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"🖥️ Using device: {device}")
     
-    # .pt 파일을 직접 로드하여 추론 준비 (내부적으로 Pre-processing 설정 포함함)
     inferencer = TorchInferencer(
         path=model_path,
         device=device
@@ -42,47 +45,93 @@ def run_inference(data_path, model_path, output_dir):
     data_base = Path(data_path)
     output_base = Path(output_dir)
     
-    # 4대 카테고리 (damaged, good, pollution, damaged&pollution)
-    # 데이터셋 구조: data_path/test/[category]/*.jpg
-    test_root = data_base / "test"
-    if not test_root.exists():
-        # 대체 경로 탐색 (resized 폴더 등이 포함된 경우)
-        possible_paths = list(data_base.glob("**/test"))
-        if possible_paths:
-            test_root = possible_paths[0]
-        else:
-            print(f"❌ Error: 'test' 폴더를 찾을 수 없습니다. (Base: {data_path})")
-            return
-
-    print(f"🎯 Found test root: {test_root}")
+    # 🎯 데이터 구조 탐색 (Standard: test/good, test/damaged or root/good, root/damaged)
+    # 먼저 루트 아래에 서브폴더가 있는지 확인
+    categories = [d for d in data_base.iterdir() if d.is_dir() and not d.name.startswith('.')]
     
-    categories = [d for d in test_root.iterdir() if d.is_dir()]
+    # 만약 'test'라는 전용 폴더가 있다면 그 안으로 들어감
+    if (data_base / "test").exists():
+        print(f"📂 'test' folder detected, navigating inside...")
+        data_base = data_base / "test"
+        categories = [d for d in data_base.iterdir() if d.is_dir() and not d.name.startswith('.')]
+
+    if not categories:
+        print(f"❌ Error: No category folders (good, damaged, etc.) found in {data_base}")
+        return
+
+    print(f"🎯 Found categories: {[c.name for c in categories]}")
     
     for cat_dir in categories:
         cat_name = cat_dir.name
         print(f"🔍 Processing: {cat_name}")
         
-        # 카테고리별 출력 폴더 생성
         cat_output = output_base / cat_name
         cat_output.mkdir(parents=True, exist_ok=True)
         
-        # 이미지 파일 스캔
         img_files = list(cat_dir.glob("*.jpg")) + list(cat_dir.glob("*.png")) + list(cat_dir.glob("*.jpeg"))
         
         for img_path in img_files:
-            # 2. Prediction 수행 (Anomalib 표준 API)
-            # predict()는 PredictionResults 객체를 반환하며, 
-            # 여기에는 시각화된 heatmapImage가 포함됩니다.
-            results = inferencer.predict(image=str(img_path))
+            # 1. Image Loading (Conditional Preprocess)
+            if preprocess_image and not skip_preprocess:
+                # Returns (H, W, 3) BGR numpy array with CLAHE + Resize
+                processed_img = preprocess_image(img_path, target_size=(256, 256))
+            else:
+                # Already preprocessed or fallback
+                processed_img = cv2.imread(str(img_path))
+                if processed_img is None:
+                    continue
+                # Ensure size matches model even if skip_preprocess is on
+                if processed_img.shape[:2] != (256, 256):
+                    processed_img = cv2.resize(processed_img, (256, 256))
+            results = inferencer.predict(image=processed_img)
             
-            # 3. 히트맵 시각화 데이터 추출
-            # predictions.heatmap은 오버레이된 BGR 이미지(numpy)입니다.
-            heatmap_img = results.heatmap
-            
-            # 4. 저장
-            save_name = f"heatmap_{img_path.name}"
-            save_path = cat_output / save_name
-            cv2.imwrite(str(save_path), heatmap_img)
+            # 3. Extract Anomaly Map (Tensor)
+            # results is ImageBatch. anomaly_map should be present.
+            if hasattr(results, 'anomaly_map'):
+                anomaly_map = results.anomaly_map.squeeze().cpu().numpy() # (H, W)
+                
+                # Normalize to 0-255
+                min_val, max_val = anomaly_map.min(), anomaly_map.max()
+                if max_val - min_val > 0:
+                    am_norm = ((anomaly_map - min_val) / (max_val - min_val) * 255).astype(np.uint8)
+                else:
+                    am_norm = np.zeros_like(anomaly_map, dtype=np.uint8)
+                
+                # Resize map to image size if needed (though usually same size)
+                if am_norm.shape != processed_img.shape[:2]:
+                    am_norm = cv2.resize(am_norm, (processed_img.shape[1], processed_img.shape[0]))
+                
+                # Apply Colormap
+                heatmap = cv2.applyColorMap(am_norm, cv2.COLORMAP_JET)
+                
+                # Overlay
+                overlay = cv2.addWeighted(processed_img, 0.6, heatmap, 0.4, 0)
+                
+                # Save Heatmap Overlay
+                save_name = f"heatmap_{img_path.name}"
+                save_path = cat_output / save_name
+                cv2.imwrite(str(save_path), overlay)
+            else:
+                print(f"⚠️ Warning: No anomaly_map found for {img_path.name}")
+
+            # 4. Extract Prediction Mask (if available)
+            if hasattr(results, 'pred_mask') and results.pred_mask is not None:
+                mask = results.pred_mask.squeeze().cpu().numpy()
+                if mask.max() > 0: # If any anomaly predicted
+                    # Resize mask
+                    if mask.shape != processed_img.shape[:2]:
+                        mask = cv2.resize(mask, (processed_img.shape[1], processed_img.shape[0]), interpolation=cv2.INTER_NEAREST)
+                    
+                    # Create red overlay for mask
+                    # Mask is 0 or 1 (or boolean)
+                    mask_overlay = processed_img.copy()
+                    mask_overlay[mask > 0.5] = [0, 0, 255] # Red
+                    
+                    overlay_mask = cv2.addWeighted(processed_img, 0.7, mask_overlay, 0.3, 0)
+                    
+                    save_name_mask = f"mask_{img_path.name}"
+                    save_path_mask = cat_output / save_name_mask
+                    cv2.imwrite(str(save_path_mask), overlay_mask)
             
     print(f"\n✅ All heatmaps generated successfully!")
     print(f"📍 Location: {output_dir}")
@@ -92,6 +141,7 @@ if __name__ == "__main__":
     parser.add_argument("--data_path", type=str, required=True, help="Input data folder")
     parser.add_argument("--model_path", type=str, required=True, help="Trained model (.pt) file")
     parser.add_argument("--output_dir", type=str, required=True, help="Inference results folder")
+    parser.add_argument("--skip_preprocess", action="store_true", help="Skip custom preprocessing (use for pipeline)")
     
     args = parser.parse_args()
-    run_inference(args.data_path, args.model_path, args.output_dir)
+    run_inference(args.data_path, args.model_path, args.output_dir, args.skip_preprocess)

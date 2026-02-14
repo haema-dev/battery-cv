@@ -1,0 +1,86 @@
+$schema: https://azuremlschemas.azureedge.net/latest/pipelineJob.schema.json
+type: pipeline
+display_name: "Battery_Anomaly_Detection_Full_Pipeline_Split"
+experiment_name: Battery_S1_EndToEnd_Split
+
+inputs:
+  train_data:
+    type: uri_folder
+    path: azureml:battery_data_1@latest # 학습용 원본 데이터 에셋
+  test_data:
+    type: uri_folder
+    path: azureml:test_data@latest          # 테스트용 원본 데이터 에셋
+
+outputs:
+  pipeline_output:
+    mode: rw_mount
+    type: uri_folder
+
+settings:
+  default_compute: azureml:gpu-t4
+
+jobs:
+  # 1-1단계: 학습 데이터 전처리
+  preprocess_train_step:
+    type: command
+    code: src/
+    command: >-
+      python preprocess_entry.py 
+      --data_path ${{inputs.data_path}} 
+      --output_path ${{outputs.preprocessed_data}}
+    inputs:
+      data_path: ${{parent.inputs.train_data}}
+    outputs:
+      preprocessed_data:
+        type: uri_folder
+    compute: azureml:cpu-standard
+
+  # 1-2단계: 테스트 데이터 전처리
+  preprocess_test_step:
+    type: command
+    code: src/
+    command: >-
+      python preprocess_entry.py 
+      --data_path ${{inputs.data_path}} 
+      --output_path ${{outputs.preprocessed_data}}
+    inputs:
+      data_path: ${{parent.inputs.test_data}}
+    outputs:
+      preprocessed_data:
+        type: uri_folder
+    compute: azureml:cpu-standard
+
+  # 2단계: 학습 (전처리된 학습 데이터 사용)
+  train_step:
+    type: command
+    code: src/
+    command: >-
+      python index.py 
+      --data_path ${{inputs.data_path}} 
+      --output_dir ${{outputs.model_output}}
+      --epochs 50
+      --backbone resnet18
+      --seed 42
+    inputs:
+      data_path: ${{parent.jobs.preprocess_train_step.outputs.preprocessed_data}}
+    outputs:
+      model_output:
+        type: uri_folder
+    compute: azureml:gpu-advanced
+
+  # 3단계: 추론 (전처리된 테스트 데이터 + 학습된 모델 사용)
+  inference_step:
+    type: command
+    code: src/
+    command: >-
+      python inference.py 
+      --data_path ${{inputs.data_path}} 
+      --model_path ${{inputs.model_path}}/model.ckpt
+      --output_dir ${{outputs.inference_results}}
+      --skip_preprocess
+    inputs:
+      data_path: ${{parent.jobs.preprocess_test_step.outputs.preprocessed_data}}
+      model_path: ${{parent.jobs.train_step.outputs.model_output}}
+    outputs:
+      inference_results: ${{parent.outputs.pipeline_output}}
+    compute: azureml:gpu-t4

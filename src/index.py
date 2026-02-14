@@ -17,7 +17,7 @@ from anomalib.loggers import AnomalibMLFlowLogger
 from pathlib import Path
 from torchvision.transforms.v2 import Compose, Normalize, Resize
 from lightning.pytorch.callbacks import EarlyStopping
-from anomalib.metrics import AUROC, F1Score
+from anomalib.metrics import AUROC, F1Score, Evaluator
 
 def set_seed(seed):
     random.seed(seed)
@@ -26,7 +26,7 @@ def set_seed(seed):
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
 
-class CustomFastflow(Fastflow):
+class TunableFastflow(Fastflow):
     def __init__(self, *args, lr: float = 0.001, weight_decay: float = 1e-5, **kwargs):
         super().__init__(*args, **kwargs)
         self.lr = lr
@@ -38,6 +38,13 @@ class CustomFastflow(Fastflow):
             lr=self.lr,
             weight_decay=self.weight_decay,
         )
+
+    @staticmethod
+    def configure_evaluator() -> Evaluator:
+        # 이미지 레벨 지표만 활성화하여 gt_mask 의존성을 공식적으로 제거합니다.
+        image_auroc = AUROC(fields=["pred_score", "gt_label"], prefix="image_")
+        image_f1score = F1Score(fields=["pred_label", "gt_label"], prefix="image_")
+        return Evaluator(val_metrics=[image_auroc], test_metrics=[image_auroc, image_f1score])
 
 def main():
     # ================== 1. Input/Output 설정 ==================== #
@@ -136,11 +143,15 @@ def main():
 
         # ================== 3. 모델 및 콜백 설정 ==================== #
         logger.info(f"🏗️ 모델 생성 중: FastFlow (Backbone: {args.backbone})")
-        # evaluator=False prevents internal metric initialization that might expect gt_mask
-        model = CustomFastflow(
+        
+        # 공식 권장 패턴: Evaluator를 직접 생성하여 모델에 주입합니다.
+        # 이를 통해 gt_mask가 없는 classification 환경임을 명시합니다.
+        evaluator = TunableFastflow.configure_evaluator()
+        
+        model = TunableFastflow(
             backbone=args.backbone, 
             flow_steps=8, 
-            evaluator=False,
+            evaluator=evaluator,
             lr=args.lr,
             weight_decay=args.weight_decay
         )
@@ -154,12 +165,6 @@ def main():
         )
 
         mlflow_logger = AnomalibMLFlowLogger(experiment_name="Battery_Anomaly", save_dir=str(OUTPUT_DIR))
-        
-        # [Definitive Metric Fix] Explicitly define metrics to avoid gt_mask request
-        image_metrics = [
-            AUROC(fields=["pred_score", "gt_label"]),
-            F1Score(fields=["pred_score", "gt_label"])
-        ]
 
         engine = Engine(
             max_epochs=args.epochs,
@@ -168,10 +173,7 @@ def main():
             default_root_dir=str(OUTPUT_DIR),
             logger=mlflow_logger,
             callbacks=[early_stop],
-            image_metrics=image_metrics,
-            pixel_metrics=None,
-            gradient_clip_val=1.0,
-            task="classification"
+            gradient_clip_val=1.0 # Lightning 공식 지원 인자
         )
 
         # ================== 4. 학습 및 저장 ==================== #

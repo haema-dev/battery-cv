@@ -34,6 +34,7 @@ jobs:
       preprocessed_data:
         type: uri_folder
     compute: azureml:cpu-standard
+    environment: azureml:env-yolo@latest
 
   # 1-2단계: 테스트 데이터 전처리
   preprocess_test_step:
@@ -49,6 +50,7 @@ jobs:
       preprocessed_data:
         type: uri_folder
     compute: azureml:cpu-standard
+    environment: azureml:env-yolo@latest
 
   # 2단계: 학습 (전처리된 학습 데이터 사용)
   train_step:
@@ -67,6 +69,7 @@ jobs:
       model_output:
         type: uri_folder
     compute: azureml:gpu-advanced
+    environment: azureml:env-yolo@latest
 
   # 3단계: 추론 (전처리된 테스트 데이터 + 학습된 모델 사용)
   inference_step:
@@ -84,3 +87,4 @@ jobs:
     outputs:
       inference_results: ${{parent.outputs.pipeline_output}}
     compute: azureml:gpu-t4
+    environment: azureml:env-yolo@latest

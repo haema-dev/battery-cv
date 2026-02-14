@@ -44,7 +44,10 @@ class TunableFastflow(Fastflow):
         # 이미지 레벨 지표만 활성화하여 gt_mask 의존성을 공식적으로 제거합니다.
         image_auroc = AUROC(fields=["pred_score", "gt_label"], prefix="image_")
         image_f1score = F1Score(fields=["pred_label", "gt_label"], prefix="image_")
-        return Evaluator(val_metrics=[image_auroc], test_metrics=[image_auroc, image_f1score])
+        return Evaluator(
+            val_metrics=[image_auroc, image_f1score], 
+            test_metrics=[image_auroc, image_f1score]
+        )
 
 def main():
     # ================== 1. Input/Output 설정 ==================== #
@@ -156,9 +159,9 @@ def main():
             weight_decay=args.weight_decay
         )
         
-        # Early Stopping 설정: 성능 향상이 없으면 조기 종료하여 자원 절약
+        # Early Stopping 설정: image_AUROC를 모니터링하여 과적합 방지
         early_stop = EarlyStopping(
-            monitor="image_F1Score", 
+            monitor="image_AUROC", 
             patience=5, 
             mode="max",
             verbose=True

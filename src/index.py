@@ -4,11 +4,36 @@ import sys
 import inspect
 from pathlib import Path
 import torch
+import lightning.pytorch.trainer.trainer as trainer_module
+
+# v3.5: "The Surgeon" - Tactical Monkey-Patch & Dynamic API Fix
+# Anomalib 1.1.3의 치명적 설계 결함을 정밀 수술로 해결합니다.
+
+# [핵심 수술 1] Trainer가 'task' 인자를 받고 죽는 것을 방지
+# Engine은 task가 필요하지만, Trainer는 이를 모르기에 중간에서 가로채서 제거합니다.
+original_trainer_init = trainer_module.Trainer.__init__
+def patched_trainer_init(self, *args, **kwargs):
+    if "task" in kwargs:
+        print(f"🩹 [Surgeon] Intercepted and removed 'task' argument from Trainer: {kwargs['task']}")
+        kwargs.pop("task")
+    return original_trainer_init(self, *args, **kwargs)
+trainer_module.Trainer.__init__ = patched_trainer_init
+
 from anomalib.data import Folder
 from anomalib.models import Fastflow
 from anomalib.engine import Engine
 
-# v3.4: Definitive Stabilization (The "Zero-Regression" Fix)
+def print_directory_tree(path, max_depth=3):
+    print(f"\n📂 [File System Check] Root: {path}")
+    base = Path(path)
+    if not base.exists(): return
+    for root, dirs, files in os.walk(base):
+        level = root.replace(str(base), '').count(os.sep)
+        if level > max_depth: continue
+        indent = ' ' * 4 * level
+        print(f"{indent}{os.path.basename(root)}/")
+        for f in files[:2]: print(f"{' ' * 4 * (level + 1)}{f}")
+
 def find_anomalib_root(base_path):
     base = Path(base_path)
     for p in base.rglob("*"):
@@ -18,14 +43,14 @@ def find_anomalib_root(base_path):
 
 def run_pipeline(data_path, output_dir, epochs):
     print("==================================================")
-    print("🚀 STAGE 1: DEFINITIVE STABILIZATION V3.4")
+    print("🚀 STAGE 1: DEFINITIVE STABILIZATION V3.5 (SURGEON)")
     print("==================================================")
     
     # 1. 데이터 루트 탐색
     optimized_root = find_anomalib_root(data_path)
     print(f"🔎 Final Data Root: {optimized_root}")
 
-    # 2. Folder 동적 인자 설정 (V3.3에서 검증된 로직)
+    # 2. Folder 동적 인자 설정 (V3.3 검증 완료)
     sig_folder = inspect.signature(Folder)
     dm_args = {
         "name": "battery",
@@ -36,7 +61,6 @@ def run_pipeline(data_path, output_dir, epochs):
     if "normal_test_dir" in sig_folder.parameters: 
         dm_args["normal_test_dir"] = "test/normal"
     
-    # abnormal_dir 명칭 자동 대응
     for k in ["abnormal_dir", "abnormal_test_dir", "test_abnormal_dir"]:
         if k in sig_folder.parameters:
             dm_args[k] = "test/damaged"
@@ -47,35 +71,27 @@ def run_pipeline(data_path, output_dir, epochs):
 
     # 3. 모델 설정
     model = Fastflow(backbone="resnet18", flow_steps=8)
-    # gt_mask 에러를 방지하기 위해 모델 레벨에서 태스크를 설정
-    if hasattr(model, "task"):
-        model.task = "classification"
 
-    # 4. 엔진 설정 (TypeError 방지를 위한 초슬림화)
-    # v1.1.3 Engine은 __init__에서 'task'를 받으면 내부 Trainer로 넘기는데, 
-    # 정작 Trainer는 'task' 인자를 몰라서 에러가 납니다.
-    # 따라서 __init__에서는 제거하고, 객체 생성 후에 속성으로 설정합니다.
+    # 4. 엔진 설정 (이제 'task'를 수술로 해결했으므로 당당하게 넘깁니다)
+    # task="classification"이 들어가야 gt_mask 에러가 나지 않습니다.
+    # pixel_metrics=None을 통해 픽셀 단위 계산을 원천 차단합니다.
+    print("⚙️ Initializing Engine with Classification task...")
     engine = Engine(
         max_epochs=epochs,
         default_root_dir=output_dir,
         devices=1,
-        accelerator="auto"
+        accelerator="auto",
+        task="classification",
+        pixel_metrics=None
     )
-    
-    # 인스턴스 생성 후 태스크 설정 (가장 안전한 방법)
-    if hasattr(engine, "task"):
-        engine.task = "classification"
-    
-    # 픽셀 메트릭 에러(gt_mask) 원천 차단
-    if hasattr(engine, "pixel_metrics"):
-        engine.pixel_metrics = None
 
     # 5. 실행
-    print(f"\n⏳ Starting Engine.fit...")
+    print(f"\n⏳ Starting Engine.fit (Epochs: {epochs})...")
     try:
         engine.fit(model=model, datamodule=datamodule)
     except Exception as e:
-        print(f"\n❌ FAILURE: {e}")
+        print(f"\n❌ FINAL FAILURE: {e}")
+        print_directory_tree(data_path, max_depth=4)
         raise e
 
     # 6. 저장

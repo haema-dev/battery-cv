@@ -17,7 +17,7 @@ from anomalib.loggers import AnomalibMLFlowLogger
 from pathlib import Path
 from torchvision.transforms.v2 import Compose, Normalize, Resize
 from lightning.pytorch.callbacks import EarlyStopping
-from anomalib.metrics import AUROC, F1Score, Evaluator
+from anomalib.metrics import AUROC, F1Score, Evaluator, F1AdaptiveThreshold
 
 def set_seed(seed):
     random.seed(seed)
@@ -41,11 +41,16 @@ class TunableFastflow(Fastflow):
 
     @staticmethod
     def configure_evaluator() -> Evaluator:
-        # 이미지 레벨 지표만 활성화하여 gt_mask 의존성을 공식적으로 제거합니다.
         image_auroc = AUROC(fields=["pred_score", "gt_label"], prefix="image_")
         image_f1score = F1Score(fields=["pred_label", "gt_label"], prefix="image_")
+        
+        # [CRITICAL] 
+        # F1AdaptiveThreshold: 검증 단계에서 최적의 임계값(Threshold)을 계산합니다.
+        # 이 지표가 있어야 Test 단계에서 'pred_label'을 생성할 수 있습니다.
+        image_threshold = F1AdaptiveThreshold(fields=["pred_score", "gt_label"], prefix="image_")
+        
         return Evaluator(
-            val_metrics=[image_auroc, image_f1score], 
+            val_metrics=[image_auroc, image_threshold], 
             test_metrics=[image_auroc, image_f1score]
         )
 

@@ -39,7 +39,7 @@ def find_validation_root(base_path):
 
 def run_evaluation(data_path, model_path, output_dir):
     logger.info("==================================================")
-    logger.info("� STAGE 2: INFERENCE & PERFORMANCE EVALUATION")
+    logger.info("🚀 STAGE 2: INFERENCE & PERFORMANCE EVALUATION")
     logger.info("==================================================")
 
     if not INFERENCER_AVAILABLE:
@@ -51,6 +51,11 @@ def run_evaluation(data_path, model_path, output_dir):
     logger.info(f"🖥️ 사용 장치: {device}")
     
     try:
+        # 모델 경로 존재 확인
+        if not os.path.exists(model_path):
+            logger.error(f"❌ 모델 파일을 찾을 수 없습니다: {model_path}")
+            return
+            
         inferencer = TorchInferencer(path=model_path, device=device)
         logger.success("✅ 모델 로드 성공")
     except Exception as e:
@@ -65,10 +70,8 @@ def run_evaluation(data_path, model_path, output_dir):
     output_base.mkdir(parents=True, exist_ok=True)
 
     # 3. 평가 데이터 초기화 (Confusion Matrix용)
-    # 정답(Actual): 'good' -> 0, 'damaged/pollution' -> 1
-    # 예측(Predicted): Anomaly Score 기반 판단
     results_summary = []
-    matrix = defaultdict(int) # TN, FP, FN, TP
+    matrix = defaultdict(int) 
 
     # 4. 카테고리 순회
     categories = [d for d in validation_root.iterdir() if d.is_dir()]
@@ -93,16 +96,15 @@ def run_evaluation(data_path, model_path, output_dir):
                 heatmap = prediction.heatmap
                 cv2.imwrite(str(cat_output / f"heatmap_{img_path.name}"), heatmap)
                 
-                # 분류 결과 추출 (Anomalib 1.1.x 기준)
-                # pred_label: 0(정상), 1(불량)
+                # 분류 결과 추출
                 pred_label = int(prediction.pred_label) if hasattr(prediction, 'pred_label') else (1 if prediction.pred_score > 0.5 else 0)
                 pred_score = float(prediction.pred_score)
 
-                # 메트릭 업데이트 (Confusion Matrix)
-                if is_actual_anomaly == 0: # 실제 정상
+                # 메트릭 업데이트
+                if is_actual_anomaly == 0: 
                     if pred_label == 0: matrix["TN"] += 1
                     else: matrix["FP"] += 1
-                else: # 실제 불량
+                else: 
                     if pred_label == 1: matrix["TP"] += 1
                     else: matrix["FN"] += 1
                 
@@ -138,11 +140,20 @@ def run_evaluation(data_path, model_path, output_dir):
     logger.success(f"🎉 Stage 2 완료. 히트맵 및 리포트 저장됨: {output_dir}")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--data_path", type=str, required=True)
-    parser.add_argument("--model_path", type=str, required=True)
-    parser.add_argument("--output_dir", type=str, required=True)
-    args = parser.parse_args()
+    # 디버깅: 에저에서 들어오는 원본 인자 확인
+    logger.info(f"📋 Raw Arguments: {sys.argv}")
     
-    sys.stdout.reconfigure(line_buffering=True)
-    run_evaluation(args.data_path, args.model_path, args.output_dir)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data_path", type=str, required=True, help="Path to input validation folders")
+    parser.add_argument("--model_path", type=str, required=True, help="Path to trained model.pt")
+    parser.add_argument("--output_dir", type=str, required=True, help="Folder to save results")
+    
+    try:
+        args = parser.parse_args()
+        logger.info(f"✅ Parsed Arguments: data={args.data_path}, model={args.model_path}, out={args.output_dir}")
+        
+        sys.stdout.reconfigure(line_buffering=True)
+        run_evaluation(args.data_path, args.model_path, args.output_dir)
+    except Exception as e:
+        logger.error(f"❌ FATAL: Argument issue: {e}")
+        sys.exit(1)

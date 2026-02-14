@@ -10,6 +10,7 @@ import random
 import numpy as np
 from loguru import logger
 from anomalib.models import Fastflow
+from torch import optim
 from anomalib.data import Folder
 from anomalib.engine import Engine
 from anomalib.loggers import AnomalibMLFlowLogger
@@ -24,6 +25,19 @@ def set_seed(seed):
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
+
+class CustomFastflow(Fastflow):
+    def __init__(self, *args, lr: float = 0.001, weight_decay: float = 1e-5, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.lr = lr
+        self.weight_decay = weight_decay
+
+    def configure_optimizers(self) -> optim.Optimizer:
+        return optim.Adam(
+            params=self.model.parameters(),
+            lr=self.lr,
+            weight_decay=self.weight_decay,
+        )
 
 def main():
     # ================== 1. Input/Output 설정 ==================== #
@@ -123,7 +137,7 @@ def main():
         # ================== 3. 모델 및 콜백 설정 ==================== #
         logger.info(f"🏗️ 모델 생성 중: FastFlow (Backbone: {args.backbone})")
         # evaluator=False prevents internal metric initialization that might expect gt_mask
-        model = Fastflow(
+        model = CustomFastflow(
             backbone=args.backbone, 
             flow_steps=8, 
             evaluator=False,

@@ -41,10 +41,10 @@ def resize_letterbox(img, target_size=(256, 256)):
         
     return canvas
 
-def preprocess_image(image_path, target_size=(256, 256)):
+def preprocess_image(image_path, target_size=(256, 256), force=False):
     """
     Loads image, applies CLAHE, and resizes to target_size with letterbox.
-    Returns: numpy array (H, W, 3) in BGR format and the loaded original image (for visualization if needed, ensuring size match) but here we return processed.
+    If 'force' is False and image is already at target_size, skip processing to avoid double CLAHE.
     """
     if isinstance(image_path, (str, Path)):
         img = cv2.imread(str(image_path))
@@ -54,6 +54,11 @@ def preprocess_image(image_path, target_size=(256, 256)):
         img = image_path
     else:
         raise ValueError("Unsupported image type")
+    
+    # [Smart Skip] 이미 전처리가 완료된 해상도(256x256)라면 연산을 건너뜁니다.
+    h, w = img.shape[:2]
+    if (w, h) == target_size and not force:
+        return img
     
     # Apply CLAHE (returns BGR)
     img_clahe = apply_clahe(img)

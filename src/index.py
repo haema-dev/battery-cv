@@ -108,7 +108,8 @@ def main():
             eval_batch_size=8,
             num_workers=4,
             augmentations=Resize((256, 256)),
-            seed=args.seed
+            seed=args.seed,
+            task="classification"
         )
 
         # ================== 3. 모델 및 콜백 설정 ==================== #
@@ -132,7 +133,8 @@ def main():
             default_root_dir=str(OUTPUT_DIR),
             logger=mlflow_logger,
             callbacks=[early_stop],
-            pixel_metrics=None
+            pixel_metrics=None,
+            task="classification"
         )
 
         # ================== 4. 학습 및 저장 ==================== #

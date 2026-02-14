@@ -32,6 +32,8 @@ def main():
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--backbone", type=str, default="resnet18", help="Feature extractor backbone")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
+    parser.add_argument("--lr", type=float, default=0.001, help="Learning rate")
+    parser.add_argument("--weight_decay", type=float, default=1e-5, help="Weight decay")
 
     args = parser.parse_args()
     set_seed(args.seed)
@@ -114,7 +116,14 @@ def main():
 
         # ================== 3. 모델 및 콜백 설정 ==================== #
         logger.info(f"🏗️ 모델 생성 중: FastFlow (Backbone: {args.backbone})")
-        model = Fastflow(backbone=args.backbone, flow_steps=8, evaluator=True)
+        # evaluator=False prevents internal metric initialization that might expect gt_mask
+        model = Fastflow(
+            backbone=args.backbone, 
+            flow_steps=8, 
+            evaluator=False,
+            lr=args.lr,
+            weight_decay=args.weight_decay
+        )
         
         # Early Stopping 설정: 성능 향상이 없으면 조기 종료하여 자원 절약
         early_stop = EarlyStopping(
@@ -133,6 +142,7 @@ def main():
             default_root_dir=str(OUTPUT_DIR),
             logger=mlflow_logger,
             callbacks=[early_stop],
+            image_metrics=["AUROC", "F1Score"],
             pixel_metrics=None,
             task="classification"
         )

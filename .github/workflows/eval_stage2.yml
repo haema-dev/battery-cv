@@ -35,11 +35,11 @@ jobs:
 
       - name: Register Model from Stage 1
         run: |
-          echo "🚀 Registering model from Job: S1_FastFlow_Training_v2_100e"
+          echo "🚀 Registering model from Job: dynamic_juice_f035fsld3z"
           # 1단계 결과물을 'battery_fastflow_model'이라는 이름으로 에저에 정식 등록합니다.
           # 실패 시 에러가 나도록 하여 파이프라인이 즉시 중단되게 합니다.
           az ml model create --name battery_fastflow_model \
-            --path azureml://jobs/S1_FastFlow_Training_v2_100e/outputs/outputs/model.pt \
+            --path azureml://jobs/dynamic_juice_f035fsld3z/outputs/outputs/model.pt \
             --type custom_model
 
       - name: Verify Model Registration

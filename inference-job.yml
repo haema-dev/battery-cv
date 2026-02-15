@@ -13,5 +13,9 @@ outputs:
   inference_results:
     type: uri_folder
     mode: upload
-environment: azureml:anomalib_env_v2@latest
+environment:
+  image: mcr.microsoft.com/azureml/openmpi4.1.0-cuda11.8-cudnn8-ubuntu22.04
+  conda_fenvironment:
+  image: mcr.microsoft.com/azureml/openmpi4.1.0-cuda11.8-cudnn8-ubuntu22.04
+  conda_file: env/conda_env.yml
 compute: azureml:gpu-t4

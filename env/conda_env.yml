@@ -8,13 +8,30 @@ dependencies:
   - pip
   - pip:
     - azureml-mlflow
-    - anomalib==1.1.3
-    - torch
-    - torchvision
-    - numpy
     - loguru
+    # Core Dependencies (Anomalib 1.1.3 base.txt equivalent)
+    - omegaconf>=2.1.1
+    - rich>=13.5.2
+    - jsonargparse[signatures]>=4.27.7
+    - docstring_parser
+    - rich_argparse
+    - lightning>=2.2.0
+    - torchmetrics>=1.1.0
+    - lightning-utilities
+    - timm
+    - freia>=0.2
+    - einops>=0.3.2
+    - pillow>=10.1.0
     - opencv-python-headless
-    - openvino>=2023.0.0
-    - pytorch-lightning==1.9.5
-    - pandas
+    - scikit-image
+    - tifffile
+    - imagecodecs
+    - kornia>=0.6.6
+    - pandas>=1.1.0
+    - matplotlib>=3.4.3
     - scikit-learn
+    - anomalib==1.1.3
+    # Optional but often needed
+    - openvino>=2024.0
+    - nncf>=2.10.0
+    - onnx>=1.16.0

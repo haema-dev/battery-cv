@@ -17,3 +17,4 @@ environment:
   image: mcr.microsoft.com/azureml/openmpi4.1.0-cuda11.8-cudnn8-ubuntu22.04
   conda_file: env/conda_env.yml
 compute: azureml:gpu-t4
+experiment_name: Battery_S1_AnomalyDetection

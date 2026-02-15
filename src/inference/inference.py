@@ -17,6 +17,9 @@ except ImportError:
     print("⚠️ Warning: 'src/preprocess.py' not found. Ensure it exists.")
     preprocess_image = None
 
+# [Security Fix] PyTorch 2.4+ requires explicit trust for custom code (TunableFastflow)
+os.environ["TRUST_REMOTE_CODE"] = "1"
+
 def run_inference(data_path, model_path, output_dir, skip_preprocess=False):
     """
     Runs inference using Anomalib TorchInferencer.
@@ -24,8 +27,8 @@ def run_inference(data_path, model_path, output_dir, skip_preprocess=False):
     """
     print("--------------------------------------------------")
     print(f"🚀 [Phase 2] Inference & Heatmap Generation")
-    print(f"📦 Model: {model_path}")
-    print(f"📂 Data: {data_path}")
+    print(f"📦 Model Path: {model_path}")
+    print(f"📂 Data Path: {data_path}")
     print(f"⚙️ Skip Preprocess: {skip_preprocess}")
     print("--------------------------------------------------")
 
@@ -39,14 +42,22 @@ def run_inference(data_path, model_path, output_dir, skip_preprocess=False):
     
     model_path_obj = Path(model_path)
     if model_path_obj.is_dir():
-        # [Robust Resolution] engine.export()가 생성하는 하위 폴더까지 재귀적으로 탐색합니다.
-        ckpt_files = list(model_path_obj.rglob("*.pt")) + list(model_path_obj.rglob("*.ckpt"))
-        if not ckpt_files:
-            print(f"❌ Error: No checkpoint or exported model (.pt/.ckpt) found in {model_path}")
+        # [Priority Selection] 
+        # 1순위: engine.export()로 생성된 메타데이터 포함 모델 (model.pt)
+        # 2순위: 체크포인트 파일 (model.ckpt)
+        # 3순위: 기타 .pt 파일
+        all_pt = list(model_path_obj.rglob("model.pt"))
+        all_ckpt = list(model_path_obj.rglob("*.ckpt"))
+        all_fallback = [f for f in model_path_obj.rglob("*.pt") if f.name != "model_weights.pt"]
+        
+        candidates = all_pt + all_ckpt + all_fallback
+        
+        if not candidates:
+            print(f"❌ Error: No valid model file found in {model_path}")
             return
-        # 가급적 export된 가중치를 먼저 선택 (일반적으로 .pt)
-        actual_model_file = ckpt_files[0]
-        print(f"📍 Detected model file for inference: {actual_model_file}")
+            
+        actual_model_file = candidates[0]
+        print(f"📍 Selected model for inference: {actual_model_file}")
     else:
         actual_model_file = model_path_obj
 

@@ -1,0 +1,11 @@
+**/*.pyc
+**/__pycache__/
+.git/
+.github/
+env/
+last_Battery/
+mlruns/
+outputs/
+*.pth
+*.pt
+*.ckpt

@@ -16,7 +16,8 @@ inputs:
 outputs:
   inference_results:
     type: uri_folder
-    mode: upload
+    path: azureml://datastores/workspaceblobstore/paths/stage2_results
+    mode: rw_mount
 environment: azureml:anomalib_env_v2@latest
 compute: azureml:gpu-t4
 display_name: Stage2_Evaluation_T4

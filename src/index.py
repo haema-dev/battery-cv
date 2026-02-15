@@ -20,26 +20,26 @@ except ImportError:
 def find_validation_root(base_path):
     """사용자님이 지정하신 'datasets/256x256 fit/validation' 경로를 정밀 탐색합니다."""
     base = Path(base_path).resolve()
-    logger.info(f"� 검증 데이터 탐색 시작: {base}")
+    logger.info(f"[*] 검증 데이터 탐색 시작: {base}")
     
     # 1순위: 'datasets/256x256 fit/validation' 정밀 탐색
     for p in base.rglob("*/validation"):
         if "256x256 fit" in str(p):
-            logger.success(f"✅ 검증 데이터셋 발견: {p}")
+            logger.success(f"OK: 검증 데이터셋 발견: {p}")
             return p
             
     # 2순위: 'validation' 폴더 탐색
     for p in base.rglob("validation"):
         if p.is_dir():
-            logger.warning(f"⚠️ 'validation' 폴더 발견: {p}")
+            logger.warning(f"WARN: 'validation' 폴더 발견: {p}")
             return p
             
-    logger.error("❌ 'validation' 폴더를 찾을 수 없습니다.")
+    logger.error("ERR: 'validation' 폴더를 찾을 수 없습니다.")
     return None
 
 def run_evaluation(data_path, model_path, output_dir):
     logger.info("==================================================")
-    logger.info("� STAGE 2: INFERENCE & PERFORMANCE EVALUATION")
+    logger.info("STAGE 2: INFERENCE & PERFORMANCE EVALUATION")
     logger.info("==================================================")
 
     if not INFERENCER_AVAILABLE:

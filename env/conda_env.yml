@@ -11,6 +11,10 @@ dependencies:
     - anomalib==1.1.3
     - torch
     - torchvision
+    - numpy
+    - loguru
+    - opencv-python-headless
     - openvino>=2023.0.0
     - pytorch-lightning==1.9.5
     - pandas
+    - scikit-learn

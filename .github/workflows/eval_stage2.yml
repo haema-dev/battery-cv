@@ -50,8 +50,10 @@ jobs:
       - name: Run Stage 2 Evaluation
         run: |
           echo "📊 Running Stage 2 (T4) with Model Version: ${{ env.MODEL_VERSION }}"
+          # [DEBUG MODE] --debug 플래그를 추가하여 진짜 에러 원인 확인
           JOB_NAME=$(az ml job create --file inference-job.yml \
             --set inputs.model.path=azureml:battery_fastflow_model:${{ env.MODEL_VERSION }} \
+            --debug \
             --query name -o tsv)
           
           echo "JOB_NAME=$JOB_NAME" >> $GITHUB_ENV

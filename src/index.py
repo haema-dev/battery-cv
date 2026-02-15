@@ -43,23 +43,23 @@ def run_evaluation(data_path, model_path, output_dir):
     logger.info("==================================================")
 
     if not INFERENCER_AVAILABLE:
-        logger.error("❌ 'TorchInferencer'를 로드할 수 없습니다.")
+        logger.error("[ERR] 'TorchInferencer'를 로드할 수 없습니다.")
         return
 
     # 1. 모델 수동 조립 (Architecture Reconstruction)
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    logger.info(f"🖥️ 사용 장치: {device}")
+    logger.info(f"[*] 사용 장치: {device}")
     
     try:
         from anomalib.models import Fastflow
         
         # [RECONSTRUCTION] 설계도(뼈대) 먼저 세우기: resnet18 기반의 Fastflow
-        logger.info("🏗️ 모델 설계도(Fastflow-ResNet18) 기반 뼈대 생성 중...")
+        logger.info("[*] 모델 설계도(Fastflow-ResNet18) 기반 뼈대 생성 중...")
         model = Fastflow(backbone="resnet18")
         
         # 가중치 파일 로드
         if not os.path.exists(model_path):
-            logger.error(f"❌ 모델 파일을 찾을 수 없습니다: {model_path}")
+            logger.error(f"[ERR] 모델 파일을 찾을 수 없습니다: {model_path}")
             return
             
         ckpt = torch.load(model_path, map_location="cpu")
@@ -76,7 +76,7 @@ def run_evaluation(data_path, model_path, output_dir):
         model.load_state_dict(state_dict, strict=False)
         model.to(device)
         model.eval() # 명시적으로 eval 모드 전환
-        logger.success("✅ 모델 가중치 정밀 조립 완료!")
+        logger.success("[OK] 모델 가중치 정밀 조립 완료!")
 
         # 조립된 '객체(nn.Module)'를 TorchInferencer가 기대하는 형식으로 임시 저장
         # TorchInferencer는 내부적으로 torch.load(path)['model']을 사용하거나 아예 객체를 기대함
@@ -85,11 +85,11 @@ def run_evaluation(data_path, model_path, output_dir):
         torch.save({"model": model}, temp_model_path)
         
         # 최종적으로 조립된 모델의 경로로 업데이트
-        logger.info(f"💾 조립된 모델 임시 저장: {temp_model_path}")
+        logger.info(f"[SAVED] 조립된 모델 임시 저장: {temp_model_path}")
         inferencer = TorchInferencer(path=temp_model_path, device=device)
-        logger.success("✅ 최종 TorchInferencer 로드 성공")
+        logger.success("[OK] 최종 TorchInferencer 로드 성공")
     except Exception as e:
-        logger.error(f"❌ 모델 조립 및 로드 실패: {e}")
+        logger.error(f"[ERR] 모델 조립 및 로드 실패: {e}")
         import traceback
         logger.debug(traceback.format_exc())
         return
@@ -107,7 +107,7 @@ def run_evaluation(data_path, model_path, output_dir):
 
     # 4. 카테고리 순회
     categories = [d for d in validation_root.iterdir() if d.is_dir()]
-    logger.info(f"📂 카테고리 목록: {[c.name for c in categories]}")
+    logger.info(f"[*] 카테고리 목록: {[c.name for c in categories]}")
 
     for cat_dir in categories:
         cat_name = cat_dir.name
@@ -117,7 +117,7 @@ def run_evaluation(data_path, model_path, output_dir):
         cat_output.mkdir(parents=True, exist_ok=True)
         
         img_files = list(cat_dir.glob("*.jpg")) + list(cat_dir.glob("*.png")) + list(cat_dir.glob("*.jpeg"))
-        logger.info(f"🔍 {cat_name} 처리 중... ({len(img_files)}장)")
+        logger.info(f"[*] {cat_name} 처리 중... ({len(img_files)}장)")
 
         for img_path in img_files:
             try:
@@ -148,16 +148,16 @@ def run_evaluation(data_path, model_path, output_dir):
                 })
 
             except Exception as e:
-                logger.warning(f"⚠️ 처리 실패 ({img_path.name}): {e}")
+                logger.warning(f"[WARN] 처리 실패 ({img_path.name}): {e}")
 
     # 5. 최종 리포트 생성
     total = sum(matrix.values())
     accuracy = (matrix["TP"] + matrix["TN"]) / total if total > 0 else 0
     
     logger.info("--------------------------------------------------")
-    logger.info("📊 STAGE 2 EVALUATION REPORT")
-    logger.info(f"✅ Accuracy: {accuracy:.4f}")
-    logger.info(f"📝 Confusion Matrix: {dict(matrix)}")
+    logger.info("STAGE 2 EVALUATION REPORT")
+    logger.info(f"[*] Accuracy: {accuracy:.4f}")
+    logger.info(f"[*] Confusion Matrix: {dict(matrix)}")
     logger.info("--------------------------------------------------")
 
     # 결과 파일 저장
@@ -169,11 +169,11 @@ def run_evaluation(data_path, model_path, output_dir):
     with open(output_base / "evaluation_report.json", "w") as f:
         json.dump(report, f, indent=4)
     
-    logger.success(f"🎉 Stage 2 완료. 히트맵 및 리포트 저장됨: {output_dir}")
+    logger.success(f"[FINISH] Stage 2 완료. 히트맵 및 리포트 저장됨: {output_dir}")
 
 if __name__ == "__main__":
     # 디버깅: 에저에서 들어오는 원본 인자 확인
-    logger.info(f"📋 Raw Arguments: {sys.argv}")
+    logger.info(f"[*] Raw Arguments: {sys.argv}")
     
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_path", type=str, required=True, help="Path to input validation folders")
@@ -182,10 +182,10 @@ if __name__ == "__main__":
     
     try:
         args = parser.parse_args()
-        logger.info(f"✅ Parsed Arguments: data={args.data_path}, model={args.model_path}, out={args.output_dir}")
+        logger.info(f"[OK] Parsed Arguments: data={args.data_path}, model={args.model_path}, out={args.output_dir}")
         
         sys.stdout.reconfigure(line_buffering=True)
         run_evaluation(args.data_path, args.model_path, args.output_dir)
     except Exception as e:
-        logger.error(f"❌ FATAL: Argument issue: {e}")
+        logger.error(f"[FATAL] Argument issue: {e}")
         sys.exit(1)

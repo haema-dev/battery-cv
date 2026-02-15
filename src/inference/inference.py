@@ -11,14 +11,24 @@ try:
 except ImportError:
     INFERENCER_AVAILABLE = False
 
+from anomalib.models import Fastflow
+
+# [Security Fix] PyTorch 2.4+ requires explicit trust for custom code (TunableFastflow)
+os.environ["TRUST_REMOTE_CODE"] = "1"
+
+# [Namespace Fix] 설계도(Class)가 있어야 Pickle이 객체를 복원할 수 있습니다.
+class TunableFastflow(Fastflow):
+    def __init__(self, *args, **kwargs):
+        # 학습용 인자 제거 후 부모 생성자 호출 (Unpickling용)
+        kwargs.pop('lr', None)
+        kwargs.pop('weight_decay', None)
+        super().__init__(*args, **kwargs)
+
 try:
     from preprocess import preprocess_image
 except ImportError:
     print("⚠️ Warning: 'src/preprocess.py' not found. Ensure it exists.")
     preprocess_image = None
-
-# [Security Fix] PyTorch 2.4+ requires explicit trust for custom code (TunableFastflow)
-os.environ["TRUST_REMOTE_CODE"] = "1"
 
 def run_inference(data_path, model_path, output_dir, skip_preprocess=False):
     """
@@ -107,11 +117,24 @@ def run_inference(data_path, model_path, output_dir, skip_preprocess=False):
                 # Ensure size matches model even if skip_preprocess is on
                 if processed_img.shape[:2] != (256, 256):
                     processed_img = cv2.resize(processed_img, (256, 256))
-            results = inferencer.predict(image=processed_img)
-            
+            # 2. Prediction with Defensive Logic
+            try:
+                # [Predicted Error Fix] Shape Mismatch 방어
+                # 모델이 기대하는 256x256이 아닐 경우 강제 리사이즈
+                if processed_img.shape[:2] != (256, 256):
+                    processed_img = cv2.resize(processed_img, (256, 256))
+                
+                results = inferencer.predict(image=processed_img)
+            except Exception as e:
+                # [Predicted Error Fix] KeyError: 'metadata' 또는 기타 구조 에러 대응
+                print(f"⚠️ Prediction failed for {img_path.name}: {e}")
+                if "metadata" in str(e).lower():
+                    print("🛠️ Attempting fallback: Check if model.pt contains metadata. If not, re-export might be needed.")
+                continue
+
             # 3. Extract Anomaly Map (Tensor)
             # results is ImageBatch. anomaly_map should be present.
-            if hasattr(results, 'anomaly_map'):
+            if hasattr(results, 'anomaly_map') and results.anomaly_map is not None:
                 anomaly_map = results.anomaly_map.squeeze().cpu().numpy() # (H, W)
                 
                 # Normalize to 0-255

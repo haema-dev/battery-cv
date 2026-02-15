@@ -53,7 +53,7 @@ def run_evaluation(data_path, model_path, output_dir):
     try:
         from anomalib.models import Fastflow
         
-        # [RECONSTRUCTION] 설계도(뼈대) 먼저 세우기
+        # [RECONSTRUCTION] 설계도(뼈대) 먼저 세우기: resnet18 기반의 Fastflow
         logger.info("🏗️ 모델 설계도(Fastflow-ResNet18) 기반 뼈대 생성 중...")
         model = Fastflow(backbone="resnet18")
         
@@ -64,26 +64,34 @@ def run_evaluation(data_path, model_path, output_dir):
             
         ckpt = torch.load(model_path, map_location="cpu")
         
-        # 가중치 입히기 (state_dict 추출)
-        state_dict = ckpt.get("state_dict", ckpt)
-        if "model" in state_dict:
+        # 가중치 정제 (state_dict 추출)
+        # ckpt가 lightning 형식({"state_dict": ...})이거나 raw state_dict일 경우 대응
+        state_dict = ckpt.get("state_dict", ckpt) if isinstance(ckpt, dict) else ckpt
+        
+        # 간혹 'model' 키로 한 번 더 감싸져 있는 경우 대응
+        if isinstance(state_dict, dict) and "model" in state_dict:
             state_dict = state_dict["model"]
             
         # 뼈대에 지능(가중치) 주입
         model.load_state_dict(state_dict, strict=False)
-        model.eval().to(device)
-        logger.success("✅ 100에폭 가중치 조립 완료!")
+        model.to(device)
+        model.eval() # 명시적으로 eval 모드 전환
+        logger.success("✅ 모델 가중치 정밀 조립 완료!")
 
-        # 조립된 모델을 추론 도구에 전달하기 위해 임시 저장
+        # 조립된 '객체(nn.Module)'를 TorchInferencer가 기대하는 형식으로 임시 저장
+        # TorchInferencer는 내부적으로 torch.load(path)['model']을 사용하거나 아예 객체를 기대함
         temp_model_path = "/tmp/reconstructed_model.pt"
         os.makedirs("/tmp", exist_ok=True)
         torch.save({"model": model}, temp_model_path)
-        model_path = temp_model_path
-
-        inferencer = TorchInferencer(path=model_path, device=device)
-        logger.success("✅ 최종 모델 로드 성공")
+        
+        # 최종적으로 조립된 모델의 경로로 업데이트
+        logger.info(f"💾 조립된 모델 임시 저장: {temp_model_path}")
+        inferencer = TorchInferencer(path=temp_model_path, device=device)
+        logger.success("✅ 최종 TorchInferencer 로드 성공")
     except Exception as e:
-        logger.error(f"❌ 모델 로드 실패: {e}")
+        logger.error(f"❌ 모델 조립 및 로드 실패: {e}")
+        import traceback
+        logger.debug(traceback.format_exc())
         return
 
     # 2. 경로 설정

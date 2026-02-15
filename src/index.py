@@ -59,12 +59,12 @@ def main():
     # ================== 1. Input/Output 설정 ==================== #
     parser = argparse.ArgumentParser()    
     parser.add_argument("--data_path", type=str, required=True, help="Path to mounted data asset")
-    parser.add_argument("--model_path", type=str, default=None, help="Path to pre-trained model checkpoint (Optional for Infer/Eval)")
+    parser.add_argument("--model_path", type=str, default=None, help="Path to pre-trained model checkpoint (Optional for Eval Mode)")
     parser.add_argument('--output_dir', type=str, default='./outputs')
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--backbone", type=str, default="resnet18", help="Feature extractor backbone")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
-    parser.add_argument("--lr", type=float, default=0.0001, help="Learning rate (Lowered for stability)")
+    parser.add_argument("--lr", type=float, default=0.0001, help="Learning rate")
     parser.add_argument("--weight_decay", type=float, default=1e-5, help="Weight decay")
 
     args = parser.parse_args()
@@ -72,24 +72,12 @@ def main():
     base_path = Path(args.data_path)
     
     logger.info("==================================================")
-    logger.info(" S1_FastFlow_Training/Eval: [PM Selection Mode]")
+    logger.info(" STAGE 2: PM Selection - FastFlow Training/Eval")
     logger.info(f" 마운트 루트: {base_path}")
-    logger.info(f" 설정: Backbone={args.backbone}, Epochs={args.epochs}, Seed={args.seed}")
     if args.model_path:
-        logger.info(f" 로드 모델: {args.model_path}")
+        logger.info(f" 모델 로드 경로: {args.model_path}")
+    logger.info(f" 설정: Backbone={args.backbone}, Epochs={args.epochs}")
     logger.info("==================================================")
-
-    # [디버깅] 실제 마운트된 파일 구조 탐색
-    try:
-        logger.info(" [Debug] 마운트된 디렉토리 구조 탐색 중...")
-        for root, dirs, files in os.walk(base_path):
-            level = len(Path(root).relative_to(base_path).parts)
-            if level <= 2:
-                indent = "  " * level
-                logger.info(f"{indent} {Path(root).name}/ ({len(files)} files)")
-            if level > 2: continue
-    except Exception as e:
-        logger.warning(f" 구조 출력 중 오류 (무시 가능): {e}")
 
     # 필수 폴더 존재 여부 체크
     train_path = base_path / "train/good"
@@ -109,7 +97,7 @@ def main():
         # ================== 3. Anomalib 데이터 구성 ==================== #
         logger.info(f" 데이터셋 로딩 중: {dataset_root}")
         
-        # [Dynamic Detection] 'good'을 제외한 모든 폴더를 불량(abnormal) 카테고리로 수집
+        # [Dynamic Detection] 'good'을 제외한 모든 폴더를 불량 카테고리로 수집
         abnormal_dirs = []
         if val_path.exists():
             abnormal_dirs = [f"validation/{d.name}" for d in val_path.iterdir() if d.is_dir() and d.name != "good"]
@@ -134,8 +122,9 @@ def main():
             seed=args.seed
         )
 
-        # ================== 3. 모델 및 콜백 설정 ==================== #
+        # ================== 4. 모델 생성 및 초기화 ==================== #
         logger.info(f"🏗️ 모델 생성 중: FastFlow (Backbone: {args.backbone})")
+        
         evaluator = TunableFastflow.configure_evaluator()
         
         model = TunableFastflow(
@@ -146,16 +135,17 @@ def main():
             weight_decay=args.weight_decay
         )
         
-        # 만약 사전 학습된 가중치 파라미터가 들어온 경우 로드 (Stage 2 대응)
+        # [Stage 2 Integration] 로드할 모델 파일이 있다면 가중치 주입
         if args.model_path and os.path.exists(args.model_path):
-            logger.info(f"[*] 기존 가중치 로드 중: {args.model_path}")
+            logger.info(f"[*] 사전 학습된 가중치 로드: {args.model_path}")
             ckpt = torch.load(args.model_path, map_location="cpu")
             state_dict = ckpt.get("state_dict", ckpt)
             if isinstance(state_dict, dict) and "model" in state_dict:
                 state_dict = state_dict["model"]
             model.load_state_dict(state_dict, strict=False)
-            logger.success("[OK] 사전 학습 가중치 로드 완료")
+            logger.success("[OK] 가중치 로드 완료")
 
+        # 콜백 설정
         early_stop = EarlyStopping(
             monitor="image_AUROC", 
             patience=5, 
@@ -163,7 +153,7 @@ def main():
             verbose=True
         )
 
-        mlflow_logger = AnomalibMLFlowLogger(experiment_name="Battery_Anomaly", save_dir=str(OUTPUT_DIR))
+        mlflow_logger = AnomalibMLFlowLogger(experiment_name="Battery_S1_AnomalyDetection", save_dir=str(OUTPUT_DIR))
 
         engine = Engine(
             max_epochs=args.epochs,
@@ -175,15 +165,15 @@ def main():
             gradient_clip_val=1.0
         )
 
-        # ================== 4. 학습/테스트 수행 ==================== #
+        # ================== 5. 실행 (학습 또는 평가) ==================== #
         if not args.model_path:
-            logger.info(" [Mode] 학습 모드로 시작합니다.")
+            logger.info(" [Mode: Training] 학습을 시작합니다.")
             engine.fit(model=model, datamodule=datamodule)
         else:
-            logger.info(" [Mode] 평가/테스트 모드로 시작합니다.")
-        
-        # 최종 성능 측정
-        logger.info(" Performance evaluation and thresholding...")
+            logger.info(" [Mode: Evaluation] 학습을 생략하고 평가를 수행합니다.")
+
+        # 최종 성능 측정 및 임계값 확정
+        logger.info(" Calculating final metrics and thresholds...")
         engine.test(model=model, datamodule=datamodule)
         
         # 최적 임계값 로깅
@@ -196,7 +186,7 @@ def main():
         
         model_pt_path = OUTPUT_DIR / "model.pt"
         torch.save(model.state_dict(), model_pt_path)
-        logger.success(f" [FINISH] 모델 및 결과 저장 완료: {OUTPUT_DIR}")
+        logger.success(f" [FINISH] 모든 결과가 {OUTPUT_DIR}에 저장되었습니다.")
 
         if torch.cuda.is_available():
             gpu_name = torch.cuda.get_device_name(0)
@@ -217,7 +207,7 @@ def main():
         logger.success(" 모든 프로세스가 성공적으로 완료되었습니다.")
 
     except Exception as e:
-        logger.error(f" 실행 중 오류 발생: {e}")
+        logger.error(f" [FATAL] 실행 중 오류 발생: {e}")
         import traceback
         logger.debug(traceback.format_exc())
         raise

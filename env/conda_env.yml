@@ -9,7 +9,6 @@ dependencies:
   - pip:
     - azureml-mlflow
     - loguru
-    # Core Dependencies (Anomalib 1.1.3 base.txt equivalent)
     - omegaconf>=2.1.1
     - rich>=13.5.2
     - jsonargparse[signatures]>=4.27.7
@@ -22,7 +21,7 @@ dependencies:
     - freia>=0.2
     - einops>=0.3.2
     - pillow>=10.1.0
-    - opencv-python-headless
+    - opencv-python-headless>=4.5.3.56
     - scikit-image
     - tifffile
     - imagecodecs
@@ -30,8 +29,8 @@ dependencies:
     - pandas>=1.1.0
     - matplotlib>=3.4.3
     - scikit-learn
+    - imgaug
     - anomalib==1.1.3
-    # Optional but often needed
     - openvino>=2024.0
     - nncf>=2.10.0
     - onnx>=1.16.0

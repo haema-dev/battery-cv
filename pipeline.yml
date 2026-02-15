@@ -44,10 +44,13 @@ jobs:
       --data_path ${{inputs.data_path}} 
       --output_path ${{outputs.preprocessed_data}}
     inputs:
-      data_path: ${{parent.inputs.test_data}}
+      data_path: 
+        type: uri_folder # [Infrastructure Fix] Explicitly set type to uri_folder
+        path: ${{parent.inputs.test_data}}
     outputs:
       preprocessed_data:
         type: uri_folder
+        mode: mount # [Infrastructure Fix] Remove rw_mount to prevent lock conflicts
     compute: azureml:cpu-standard
     environment: azureml:env-yolo@latest
 
@@ -63,10 +66,13 @@ jobs:
       --backbone resnet18
       --seed 42
     inputs:
-      data_path: ${{parent.jobs.preprocess_train_step.outputs.preprocessed_data}}
+      data_path: 
+        type: uri_folder # [Infrastructure Fix] Ensure input from previous step is treated as a folder
+        path: ${{parent.jobs.preprocess_train_step.outputs.preprocessed_data}}
     outputs:
       model_output:
         type: uri_folder
+        mode: mount # [Infrastructure Fix] Remove rw_mount to prevent lock conflicts
     compute: azureml:gpu-advanced
     environment: azureml:env-yolo@latest
 

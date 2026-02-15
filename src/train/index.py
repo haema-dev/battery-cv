@@ -201,9 +201,18 @@ def main():
         ckpt_path = OUTPUT_DIR / "model.ckpt"
         engine.trainer.save_checkpoint(ckpt_path)
         
-        model_path = OUTPUT_DIR / "model.pt"
-        torch.save(model.state_dict(), model_path)
-        logger.success(f" Model saved (including thresholds in .ckpt)")
+        # [Library Fix] TorchInferencer와 100% 호환되는 표준 추론 에셋 생성
+        # 단순 가중치 저장보다 engine.export()가 Anomalib의 표준 추론 방식입니다.
+        logger.info(" 📦 Exporting standard model for inference (including metadata)...")
+        exported_model_path = engine.export(
+            model=model,
+            export_type="torch",
+            export_root=str(OUTPUT_DIR)
+        )
+        logger.success(f" ✅ Model exported to: {exported_model_path}")
+        
+        # 백업용 수동 저장
+        torch.save(model.state_dict(), OUTPUT_DIR / "model_weights.pt")
 
         if torch.cuda.is_available():
             gpu_name = torch.cuda.get_device_name(0)

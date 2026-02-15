@@ -39,13 +39,14 @@ def run_inference(data_path, model_path, output_dir, skip_preprocess=False):
     
     model_path_obj = Path(model_path)
     if model_path_obj.is_dir():
-        # 폴더가 오면 내부의 .ckpt 또는 .pt 파일을 찾습니다.
-        ckpt_files = list(model_path_obj.glob("*.ckpt")) + list(model_path_obj.glob("*.pt"))
+        # [Robust Resolution] engine.export()가 생성하는 하위 폴더까지 재귀적으로 탐색합니다.
+        ckpt_files = list(model_path_obj.rglob("*.pt")) + list(model_path_obj.rglob("*.ckpt"))
         if not ckpt_files:
-            print(f"❌ Error: No checkpoint file found in {model_path}")
+            print(f"❌ Error: No checkpoint or exported model (.pt/.ckpt) found in {model_path}")
             return
+        # 가급적 export된 가중치를 먼저 선택 (일반적으로 .pt)
         actual_model_file = ckpt_files[0]
-        print(f"📍 Found model file: {actual_model_file}")
+        print(f"📍 Detected model file for inference: {actual_model_file}")
     else:
         actual_model_file = model_path_obj
 

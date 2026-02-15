@@ -46,7 +46,7 @@ def main():
     
     stats = {
         "processed": 0,
-        "skipped": 0,
+        "already_preprocessed": 0,
         "failed": 0,
         "categories": {} # 하위 폴더별 분포 확인용
     }
@@ -63,18 +63,29 @@ def main():
         
         # [중복 작업 방지 로직] 이미 파일이 존재하면 스킵 (Force 옵션 없을 시)
         if save_path.exists() and not args.force:
-            stats["skipped"] += 1
+            stats["already_preprocessed"] += 1
             continue
             
         try:
             # 상위 디렉토리 생성
             save_path.parent.mkdir(parents=True, exist_ok=True)
             
-            # 1. 원본 로드 및 전처리 (CLAHE + Resize)
-            # preprocess.py의 preprocess_image 함수를 재사용합니다.
-            processed_img = preprocess_image(img_path, target_size=(args.target_size, args.target_size))
+            # 1. 이미지 로드 및 해상도 체크 (Smart Skip)
+            img = cv2.imread(str(img_path))
+            if img is None: continue
             
-            # 2. 결과 저장
+            h, w = img.shape[:2]
+            
+            # 이미 256x256 이면 연산 없이 그대로 저장
+            if (w, h) == (args.target_size, args.target_size) and not args.force:
+                cv2.imwrite(str(save_path), img)
+                stats["already_preprocessed"] += 1
+                continue
+
+            # 2. 전처리 (CLAHE + Resize)
+            processed_img = preprocess_image(img, target_size=(args.target_size, args.target_size), force=args.force)
+            
+            # 3. 결과 저장
             cv2.imwrite(str(save_path), processed_img)
             stats["processed"] += 1
             
@@ -86,9 +97,9 @@ def main():
     print("\n" + "=" * 60)
     print("✅ Preprocessing Complete!")
     print("-" * 60)
-    print(f"✨ Newly Processed: {stats['processed']}")
-    print(f"⏩ Skipped Existing: {stats['skipped']}")
-    print(f"⚠️ Failed:           {stats['failed']}")
+    print(f"✨ Newly Processed:      {stats['processed']}")
+    print(f"⏩ Already Preprocessed: {stats['already_preprocessed']} (Smart Skip)")
+    print(f"⚠️ Failed:               {stats['failed']}")
     print("-" * 60)
     print("📁 Category Distribution (Raw):")
     for cat, count in sorted(stats["categories"].items()):

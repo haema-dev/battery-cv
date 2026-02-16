@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# Version trigger for Azure ML - v4
 import os
 import sys
 import torch

@@ -26,33 +26,7 @@ def set_seed(seed):
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
 
-class TunableFastflow(Fastflow):
-    def __init__(self, *args, lr: float = 0.001, weight_decay: float = 1e-5, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.lr = lr
-        self.weight_decay = weight_decay
-
-    def configure_optimizers(self) -> optim.Optimizer:
-        return optim.Adam(
-            params=self.model.parameters(),
-            lr=self.lr,
-            weight_decay=self.weight_decay,
-        )
-
-    @staticmethod
-    def configure_evaluator() -> Evaluator:
-        image_auroc = AUROC(fields=["pred_score", "gt_label"], prefix="image_")
-        image_f1score = F1Score(fields=["pred_label", "gt_label"], prefix="image_")
-        
-        # [CRITICAL] 
-        # F1AdaptiveThreshold: 검증 단계에서 최적의 임계값(Threshold)을 계산합니다.
-        # 이 지표가 있어야 Test 단계에서 'pred_label'을 생성할 수 있습니다.
-        image_threshold = F1AdaptiveThreshold(fields=["pred_score", "gt_label"], prefix="image_")
-        
-        return Evaluator(
-            val_metrics=[image_auroc, image_threshold], 
-            test_metrics=[image_auroc, image_f1score]
-        )
+# TunableFastflow sub-classing is removed to align with native Anomalib serialization.
 
 def main():
     # ================== 1. Input/Output 설정 ==================== #
@@ -152,17 +126,13 @@ def main():
         # ================== 3. 모델 및 콜백 설정 ==================== #
         logger.info(f"🏗️ 모델 생성 중: FastFlow (Backbone: {args.backbone})")
         
-        # 공식 권장 패턴: Evaluator를 직접 생성하여 모델에 주입합니다.
-        # 이를 통해 gt_mask가 없는 classification 환경임을 명시합니다.
-        evaluator = TunableFastflow.configure_evaluator()
-        
-        model = TunableFastflow(
+        # [Native Standard] 순정 Fastflow 클래스를 사용하여 직렬화 안정성을 확보합니다.
+        model = Fastflow(
             backbone=args.backbone, 
-            flow_steps=8, 
-            evaluator=evaluator,
-            lr=args.lr,
-            weight_decay=args.weight_decay
+            flow_steps=8
         )
+        
+        # Note: 하이퍼파라미터(LR, Weight Decay)는 필요한 경우 Engine 설정을 통해 주입할 수 있습니다.
         
         # Early Stopping 설정: image_AUROC를 모니터링하여 과적합 방지
         early_stop = EarlyStopping(

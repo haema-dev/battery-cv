@@ -103,6 +103,7 @@ def main():
             num_workers=4,
             train_transform=transform,
             eval_transform=transform,
+            task="classification",
             seed=args.seed
         )
 

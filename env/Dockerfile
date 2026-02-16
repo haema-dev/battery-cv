@@ -1,4 +1,5 @@
-FROM nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04
+# Build trigger: NumPy 2.0 compatibility fix - v2
+FROM mcr.microsoft.com/azureml/openmpi4.1.0-ubuntu22.04:latest
 
 # 1. 시스템 의존성 설치 (OpenGL 및 필수 라이브러리)
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \

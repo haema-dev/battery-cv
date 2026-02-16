@@ -8,30 +8,31 @@ version = "0.1.0"
 description = "Professional production environment for Anomalib 1.1.3"
 requires-python = ">=3.11,<3.12"
 dependencies = [
-    "setuptools",            # mlflow의 pkg_resources 에러 방지
-    "adlfs",                 # Azure Blob Storage 접근
-    "fsspec",
+    "setuptools<75.0.0",      # pkg_resources 삭제 방지
+    "packaging>=23.0,<25.0",
+    "adlfs>=2021.10.0",
+    "fsspec>=2021.10.0",
     "mlflow>=2.10.0,<3.0.0",
     "azureml-mlflow",
-    "anomalib==1.1.3",       # 현재 index.py와 호환되는 버전 고정
+    "anomalib==1.1.3",
     "torch>=2.2.0,<2.6.0",
-    "torchvision",
-    "lightning>=2.2.0,<2.5.0",
-    "torchmetrics>=1.1.0",
-    "loguru>=0.7.0",
-    "opencv-python-headless", # libgl-mesa-glx와 함께 작동
-    "numpy>=1.24.4,<2.0.0",
-    "pandas",
-    "scikit-learn",
-    "imgaug",                # Anomalib 1.1.3 필수 누락 패키지
-    "timm",
-    "kornia",
-    "einops",
-    "freia",
-    "omegaconf",
-    "rich",
-    "open_clip_torch>=2.20.0,<3.0.0", # WinClip 등 타 모델 로딩 에러 방지 (안전 범위 고정)
-    "openvino>=2024.0.0,<2025.0.0",  # OpenVINO 경고 제거 및 2024 버전 유지
+    "torchvision>=0.17.0,<0.21.0",
+    "lightning>=2.2.0,<2.6.0",
+    "torchmetrics>=1.1.0,<1.9.0",
+    "loguru>=0.7.0,<1.0.0",
+    "opencv-python-headless>=4.5.0,<5.0.0",
+    "numpy>=1.24.4,<2.1.0",
+    "pandas>=1.1.0,<3.0.0",
+    "scikit-learn>=1.0.0,<2.0.0",
+    "imgaug>=0.4.0,<0.5.0",
+    "timm>=0.9.0,<2.0.0",
+    "kornia>=0.6.6,<0.8.0",
+    "einops>=0.3.2,<1.0.0",
+    "freia>=0.2.0,<1.0.0",    # FastFlow 필수 의존성
+    "omegaconf>=2.1.1,<3.0.0",
+    "rich>=13.5.2,<14.0.0",
+    "open_clip_torch>=2.23.0,<2.26.1", # Anomalib 공식 권장 범위
+    "openvino>=2024.0.0,<2025.0.0",
 ]
 
 [tool.hatch.build.targets.wheel]

@@ -116,7 +116,7 @@ def run_inference(data_path, model_path, output_dir, skip_preprocess=False):
         # Extract results from list of batches
         for batch in predictions:
             # batch is ImageBatch
-            paths = batch.item_path  # List of paths
+            paths = batch.image_path  # List of paths
             anomaly_maps = batch.anomaly_map  # (B, H, W) or (B, 1, H, W)
             pred_masks = batch.pred_mask if hasattr(batch, 'pred_mask') else None
 

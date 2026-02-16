@@ -1,4 +1,4 @@
-# Build trigger: NumPy 2.0 compatibility fix - v2
+# Build trigger: NumPy 1.x strict lock - v3
 FROM mcr.microsoft.com/azureml/openmpi4.1.0-ubuntu22.04:latest
 
 # 1. 시스템 의존성 설치 (OpenGL 및 필수 라이브러리)

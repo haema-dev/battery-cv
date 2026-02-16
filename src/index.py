@@ -101,7 +101,8 @@ def main():
             train_batch_size=32,
             eval_batch_size=8,
             num_workers=4,
-            augmentations=transform,
+            train_transform=transform,
+            eval_transform=transform,
             seed=args.seed
         )
 

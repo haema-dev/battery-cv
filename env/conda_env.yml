@@ -6,7 +6,7 @@ channels:
 dependencies:
   - python=3.10
   - pip
-  - libgl-mesa-glx
+  - opencv-python-headless
   - pip:
     - azureml-mlflow
     - loguru

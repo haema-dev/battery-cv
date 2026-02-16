@@ -3,30 +3,33 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "anomalib-yolo-detector"
+name = "anomalib-env"
 version = "0.1.0"
-description = "Anomalib and YOLO object detection with Azure ML"
+description = "Professional production environment for Anomalib 1.1.3"
 requires-python = ">=3.11,<3.12"
 dependencies = [
-    "setuptools",            # mlflow의 pkg_resources 에러 해결을 위한 근본 대책
-    "adlfs",
+    "setuptools",            # mlflow의 pkg_resources 에러 방지
+    "adlfs",                 # Azure Blob Storage 접근
     "fsspec",
-    "mlflow>=2.18.0,<3.0.0", # 2026년 기준 Azure ML 안정화 버전
-    "azureml-mlflow>=1.61.0", # 중복 제거 및 최신 호환 버전으로 단일화
-    "anomalib==2.2.0",
-    "ultralytics>=8.0.0",
+    "mlflow>=2.18.0",
+    "azureml-mlflow",
+    "anomalib==1.1.3",       # 현재 index.py와 호환되는 버전 고정
     "torch==2.5.1",
     "torchvision",
+    "lightning>=2.2.0",
+    "torchmetrics>=1.1.0",
     "loguru>=0.7.0",
-    "opencv-python-headless",
+    "opencv-python-headless", # libgl-mesa-glx와 함께 작동
     "numpy>=1.24.0",
-]
-
-[project.optional-dependencies]
-dev = [
-    "pytest>=7.0.0",
-    "jupyter>=1.0.0",
-    "ipython>=8.0.0",
+    "pandas",
+    "scikit-learn",
+    "imgaug",                # Anomalib 1.1.3 필수 누락 패키지
+    "timm",
+    "kornia",
+    "einops",
+    "freia",
+    "omegaconf",
+    "rich",
 ]
 
 [tool.hatch.build.targets.wheel]

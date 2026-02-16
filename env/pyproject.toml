@@ -30,6 +30,8 @@ dependencies = [
     "freia",
     "omegaconf",
     "rich",
+    "open_clip_torch>=2.20.0,<3.0.0", # WinClip 등 타 모델 로딩 에러 방지 (안전 범위 고정)
+    "openvino>=2024.0.0,<2025.0.0",  # OpenVINO 경고 제거 및 2024 버전 유지
 ]
 
 [tool.hatch.build.targets.wheel]

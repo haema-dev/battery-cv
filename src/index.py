@@ -18,7 +18,6 @@ from anomalib.loggers import AnomalibMLFlowLogger
 from pathlib import Path
 from torchvision.transforms.v2 import Compose, Normalize, Resize
 from lightning.pytorch.callbacks import EarlyStopping
-from anomalib.metrics import AUROC, F1Score, Evaluator, F1AdaptiveThreshold
 
 def set_seed(seed):
     random.seed(seed)
@@ -39,21 +38,7 @@ class TunableFastflow(Fastflow):
             lr=self.lr,
             weight_decay=self.weight_decay,
         )
-
-    @staticmethod
-    def configure_evaluator() -> Evaluator:
-        image_auroc = AUROC(fields=["pred_score", "gt_label"], prefix="image_")
-        image_f1score = F1Score(fields=["pred_label", "gt_label"], prefix="image_")
-        
-        # [CRITICAL] 
-        # F1AdaptiveThreshold: 검증 단계에서 최적의 임계값(Threshold)을 계산합니다.
-        # 이 지표가 있어야 Test 단계에서 'pred_label'을 생성할 수 있습니다.
-        image_threshold = F1AdaptiveThreshold(fields=["pred_score", "gt_label"], prefix="image_")
-        
-        return Evaluator(
-            val_metrics=[image_auroc, image_threshold], 
-            test_metrics=[image_auroc, image_f1score]
-        )
+    # [수정] configure_evaluator 제거 (Engine이 자동 관리)
 
 def main():
     # ================== 1. Input/Output 설정 ==================== #
@@ -80,9 +65,7 @@ def main():
     logger.info("==================================================")
 
     # 필수 폴더 존재 여부 체크
-    train_path = base_path / "train/good"
     val_path = base_path / "validation"
-    
     dataset_root = base_path
 
     # ================== 2. MLflow & Output 설정 ==================== #
@@ -125,12 +108,10 @@ def main():
         # ================== 4. 모델 생성 및 초기화 ==================== #
         logger.info(f"🏗️ 모델 생성 중: FastFlow (Backbone: {args.backbone})")
         
-        evaluator = TunableFastflow.configure_evaluator()
-        
+        # [수정] evaluator 인자 제거 (Engine이 자동 관리)
         model = TunableFastflow(
             backbone=args.backbone, 
             flow_steps=8, 
-            evaluator=evaluator,
             lr=args.lr,
             weight_decay=args.weight_decay
         )
@@ -145,7 +126,6 @@ def main():
             model.load_state_dict(state_dict, strict=False)
             logger.success("[OK] 가중치 로드 완료")
 
-        # 콜백 설정
         early_stop = EarlyStopping(
             monitor="image_AUROC", 
             patience=5, 
@@ -176,35 +156,19 @@ def main():
         logger.info(" Calculating final metrics and thresholds...")
         engine.test(model=model, datamodule=datamodule)
         
-        # 최적 임계값 로깅
+        # [수정] 임계값 접근 안전성 확보
         if hasattr(model, "image_threshold"):
-            logger.info(f" Calculated Image Threshold: {model.image_threshold.value.item():.4f}")
+            try:
+                # .value가 프로젝트 버전에 따라 달라질 수 있으므로 안전하게 접근
+                thresh = model.image_threshold.value.item() if hasattr(model.image_threshold, "value") else model.image_threshold
+                logger.info(f" Calculated Image Threshold: {thresh:.4f}")
+            except Exception as e:
+                logger.warning(f" Threshold 값을 읽어오는 데 실패했습니다: {e}")
 
         # 결과 저장
-        ckpt_path = OUTPUT_DIR / "model.ckpt"
-        engine.trainer.save_checkpoint(ckpt_path)
-        
         model_pt_path = OUTPUT_DIR / "model.pt"
         torch.save(model.state_dict(), model_pt_path)
         logger.success(f" [FINISH] 모든 결과가 {OUTPUT_DIR}에 저장되었습니다.")
-
-        if torch.cuda.is_available():
-            gpu_name = torch.cuda.get_device_name(0)
-            mlflow.log_param("gpu_name", gpu_name)
-
-        # 결과 기록
-        info = {
-            "backbone": args.backbone,
-            "seed": args.seed,
-            "epochs": args.epochs,
-            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
-        }
-        with open(OUTPUT_DIR / "info.json", 'w', encoding='utf-8') as f:
-            json.dump(info, f, indent=2, ensure_ascii=False)
-
-        mlflow.log_params(info)
-        mlflow.log_artifact(str(OUTPUT_DIR))
-        logger.success(" 모든 프로세스가 성공적으로 완료되었습니다.")
 
     except Exception as e:
         logger.error(f" [FATAL] 실행 중 오류 발생: {e}")

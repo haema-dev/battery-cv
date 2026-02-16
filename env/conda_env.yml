@@ -5,9 +5,9 @@ channels:
   - nvidia
 dependencies:
   - python=3.10
-  - pip
-  - opencv-python-headless
-  - pip:
+  - pip  # (1) pip 도구 자체를 먼저 설치
+  - pip: # (2) 이제 pip로 설치할 패키지 목록 시작
+    - opencv-python-headless>=4.5.3.56  # <-- 여기로 합치세요!
     - azureml-mlflow
     - loguru
     - omegaconf>=2.1.1
@@ -22,7 +22,7 @@ dependencies:
     - freia>=0.2
     - einops>=0.3.2
     - pillow>=10.1.0
-    - opencv-python-headless>=4.5.3.56
+    # (이미 위에서 opencv 넣었으니 중복 삭제)
     - scikit-image
     - tifffile
     - imagecodecs

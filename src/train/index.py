@@ -126,10 +126,21 @@ def main():
         # ================== 3. 모델 및 콜백 설정 ==================== #
         logger.info(f"🏗️ 모델 생성 중: FastFlow (Backbone: {args.backbone})")
         
-        # [Native Standard] 순정 Fastflow 클래스를 사용하여 직렬화 안정성을 확보합니다.
+        # [Fix] 픽셀 마스크가 없는 데이터이므로 image-level 메트릭만 사용
+        image_auroc_val = AUROC(fields=["pred_score", "gt_label"], prefix="image_")
+
+        image_auroc_test = AUROC(fields=["pred_score", "gt_label"], prefix="image_")
+        image_f1_test = F1Score(fields=["pred_label", "gt_label"], prefix="image_")
+
+        evaluator = Evaluator(
+            val_metrics=[image_auroc_val],
+            test_metrics=[image_auroc_test, image_f1_test],
+        )
+
         model = Fastflow(
-            backbone=args.backbone, 
-            flow_steps=8
+            backbone=args.backbone,
+            flow_steps=8,
+            evaluator=evaluator,
         )
         
         # Note: 하이퍼파라미터(LR, Weight Decay)는 필요한 경우 Engine 설정을 통해 주입할 수 있습니다.
@@ -165,8 +176,7 @@ def main():
         # 최적 임계값 로깅
         if hasattr(model, "image_threshold"):
             logger.info(f" Calculated Image Threshold: {model.image_threshold.value.item():.4f}")
-        if hasattr(model, "pixel_threshold"):
-            logger.info(f" Calculated Pixel Threshold: {model.pixel_threshold.value.item():.4f}")
+        # pixel_threshold는 pixel 메트릭 미사용 시 존재하지 않으므로 생략
 
         ckpt_path = OUTPUT_DIR / "model.ckpt"
         engine.trainer.save_checkpoint(ckpt_path)

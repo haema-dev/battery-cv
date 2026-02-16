@@ -15,7 +15,7 @@ outputs:
     mode: upload
 environment:
   build:
-    context: ./env
+    path: ./env
     dockerfile: Dockerfile
 environment_variables:
   PYTHONNOUSERSITE: "1"

@@ -16,7 +16,7 @@ outputs:
 environment:
   build:
     path: ./env
-    dockerfile: Dockerfile
+    dockerfile_path: Dockerfile
 environment_variables:
   PYTHONNOUSERSITE: "1"
 compute: azureml:gpu-t4

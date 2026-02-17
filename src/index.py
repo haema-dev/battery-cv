@@ -116,10 +116,16 @@ def main():
             if isinstance(state_dict, dict) and "model" in state_dict:
                 state_dict = state_dict["model"]
             
+            # [핵심 수정] 가중치 키 이름 보정 ('model.' 접두어 제거)
+            # Lightning 기반 체크포인트와 순정 모델 간의 키 이름을 일치시킵니다.
+            new_state_dict = {}
+            for key, value in state_dict.items():
+                new_key = key.replace("model.", "") if key.startswith("model.") else key
+                new_state_dict[new_key] = value
+            state_dict = new_state_dict
+
             # [수수술적 로깅] 가중치 로드 현황 정밀 진단
-            # Anomalib 1.1.3의 Fastflow는 내부 self.model에 실제 파라미터가 있음
-            target_model = model.model if hasattr(model, "model") else model
-            model_keys = set(target_model.state_dict().keys())
+            model_keys = set(model.state_dict().keys())
             loaded_keys = set(state_dict.keys())
             intersect_keys = model_keys.intersection(loaded_keys)
             

@@ -70,7 +70,7 @@ def main():
     dataset_root = base_path
 
     # ================== 2. MLflow & Output 설정 ==================== #
-    mlflow.start_run()
+    # [수정] 수동 mlflow.start_run() 제거 (AnomalibMLFlowLogger가 자동 관리)
     OUTPUT_DIR = Path(args.output_dir)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     
@@ -179,7 +179,7 @@ def main():
         logger.debug(traceback.format_exc())
         raise
     finally:
-        mlflow.end_run()
+        pass # [수정] 수동 mlflow.end_run() 제거
 
 if __name__ == "__main__":
     main()

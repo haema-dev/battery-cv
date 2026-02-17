@@ -105,6 +105,9 @@ def main():
             flow_steps=8
         )
         
+        # [NEW] 모델 레이어 강제 빌드 (가중치 로드 전 필수 단계)
+        model.setup(datamodule)
+        
         # [Stage 2 Integration] 로드할 모델 파일이 있다면 가중치 주입
         if args.model_path and os.path.exists(args.model_path):
             logger.info(f"[*] 사전 학습된 가중치 로드: {args.model_path}")

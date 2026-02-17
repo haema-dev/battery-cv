@@ -36,11 +36,11 @@ jobs:
       - name: Register Model from Stage 1
         id: register_model
         run: |
-          echo "🚀 Registering model from Job: dynamic_juice_f035fsld3z"
+          echo "🚀 Registering model from Job: FastFlow_cropped_2600_1770858636_d734a348"
           # 1단계 결과물을 'battery_fastflow_model'이라는 이름으로 등록합니다.
           # 사용자님께서 확인하신 model.pt 가중치 파일을 정확히 타겟팅합니다.
           REG_OUTPUT=$(az ml model create --name battery_fastflow_model \
-            --path azureml://jobs/dynamic_juice_f035fsld3z/outputs/outputs/model.pt \
+            --path azureml://jobs/FastFlow_cropped_2600_1770858636_d734a348/outputs/outputs/model.pt \
             --type custom_model -o json)
           
           VERSION=$(echo $REG_OUTPUT | jq -r '.version')

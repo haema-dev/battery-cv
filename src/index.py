@@ -126,8 +126,17 @@ def main():
             state_dict = ckpt.get("state_dict", ckpt)
             if isinstance(state_dict, dict) and "model" in state_dict:
                 state_dict = state_dict["model"]
+            
+            # [수수술적 로깅] 가중치 로드 현황 정밀 진단
+            model_keys = set(model.state_dict().keys())
+            loaded_keys = set(state_dict.keys())
+            intersect_keys = model_keys.intersection(loaded_keys)
+            
+            logger.info(f"[*] 가중치 분석: 모델 키({len(model_keys)}개), 체크포인트 키({len(loaded_keys)}개)")
+            logger.info(f"[*] 매칭된 키 개수: {len(intersect_keys)}개")
+            
             model.load_state_dict(state_dict, strict=False)
-            logger.success("[OK] 가중치 로드 완료")
+            logger.success(f"[OK] 가중치 주입 완료 (매칭율: {len(intersect_keys)/len(model_keys)*100:.1f}%)")
 
         early_stop = EarlyStopping(
             monitor="image_AUROC", 

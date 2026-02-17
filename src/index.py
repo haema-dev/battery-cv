@@ -108,32 +108,11 @@ def main():
         # [NEW] 모델 레이어 강제 빌드 (가중치 로드 전 필수 단계)
         model.setup(datamodule)
         
-        # [Stage 2 Integration] 로드할 모델 파일이 있다면 가중치 주입
-        if args.model_path and os.path.exists(args.model_path):
-            logger.info(f"[*] 사전 학습된 가중치 로드: {args.model_path}")
-            ckpt = torch.load(args.model_path, map_location="cpu")
-            state_dict = ckpt.get("state_dict", ckpt)
-            # [최종 해결책: Smart Weight Matcher]
-            # 모델의 어느 계층(전체 vs 내부)에 가중치가 더 많이 매칭되는지 자동 판별합니다.
-            model_keys = set(model.state_dict().keys())
-            inner_keys = set(model.model.state_dict().keys()) if hasattr(model, "model") else set()
-            loaded_keys = set(state_dict.keys())
-            
-            match_top = len(model_keys.intersection(loaded_keys))
-            match_inner = len(inner_keys.intersection(loaded_keys))
-            
-            logger.info(f"[*] 매칭 분석: 상위 계층({match_top}개), 내부 계층({match_inner}개)")
-            
-            if match_inner > match_top and match_inner > 0:
-                logger.info("[*] 구조 감지: 내부 모델(model.model) 가중치로 인식되었습니다.")
-                model.model.load_state_dict(state_dict, strict=False)
-                match_rate = (match_inner / len(inner_keys) * 100) if len(inner_keys) > 0 else 0
-            else:
-                logger.info("[*] 구조 감지: 전체 모델(LightningModule) 가중치로 인식되었습니다.")
-                model.load_state_dict(state_dict, strict=False)
-                match_rate = (match_top / len(model_keys) * 100) if len(model_keys) > 0 else 0
-            
-            logger.success(f"[OK] 가중치 주입 완료 (최종 매칭율: {match_rate:.1f}%)")
+        # [Stage 2 Integration] 가중치 로드 경로 설정
+        # 엔진의 공식 ckpt_path 매개변수를 사용하여 setup() 이후 가중치가 초기화되는 것을 방지합니다.
+        ckpt_path = args.model_path if args.model_path and os.path.exists(args.model_path) else None
+        if ckpt_path:
+            logger.info(f"[*] 엔진을 통해 가중치 로드 예정: {ckpt_path}")
 
         early_stop = EarlyStopping(
             monitor="image_AUROC", 
@@ -155,15 +134,19 @@ def main():
         )
 
         # ================== 5. 실행 (학습 또는 평가) ==================== #
-        if not args.model_path:
+        if args.mode == "training":
             logger.info(" [Mode: Training] 학습을 시작합니다.")
             engine.fit(model=model, datamodule=datamodule)
-        else:
+        if args.mode == "evaluation":
             logger.info(" [Mode: Evaluation] 학습을 생략하고 평가를 수행합니다.")
-
-        # 최종 성능 측정 및 임계값 확정
-        logger.info(" Calculating final metrics and thresholds...")
-        engine.test(model=model, datamodule=datamodule)
+            logger.info(" Calculating final metrics and thresholds...")
+            
+            # [핵심 수정] ckpt_path를 엔진에 직접 전달하여 무결성 확보
+            engine.test(
+                model=model, 
+                datamodule=datamodule, 
+                ckpt_path=ckpt_path
+            )
         
         # [수정] 임계값 접근 안전성 확보
         if hasattr(model, "image_threshold"):

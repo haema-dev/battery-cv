@@ -27,19 +27,6 @@ def set_seed(seed):
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
 
-class TunableFastflow(Fastflow):
-    def __init__(self, *args, lr: float = 0.001, weight_decay: float = 1e-5, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.lr = lr
-        self.weight_decay = weight_decay
-
-    def configure_optimizers(self) -> optim.Optimizer:
-        return optim.Adam(
-            params=self.model.parameters(),
-            lr=self.lr,
-            weight_decay=self.weight_decay,
-        )
-    # [수정] configure_evaluator 제거 (Engine이 자동 관리)
 
 def main():
     # ================== 1. Input/Output 설정 ==================== #
@@ -112,11 +99,10 @@ def main():
         logger.info(f"🏗️ 모델 생성 중: FastFlow (Backbone: {args.backbone})")
         
         # [수정] evaluator 인자 제거 (Engine이 자동 관리)
-        model = TunableFastflow(
+        # [수정] Anomalib 순정 모델 사용 (가장 안전한 경로)
+        model = Fastflow(
             backbone=args.backbone, 
-            flow_steps=8, 
-            lr=args.lr,
-            weight_decay=args.weight_decay
+            flow_steps=8
         )
         
         # [Stage 2 Integration] 로드할 모델 파일이 있다면 가중치 주입

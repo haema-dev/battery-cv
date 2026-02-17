@@ -105,14 +105,12 @@ def main():
             flow_steps=8
         )
         
-        # [NEW] 모델 레이어 강제 빌드 (가중치 로드 전 필수 단계)
-        model.setup(datamodule)
-        
         # [Stage 2 Integration] 가중치 로드 경로 설정
-        # 엔진의 공식 ckpt_path 매개변수를 사용하여 setup() 이후 가중치가 초기화되는 것을 방지합니다.
+        # 엔진의 공식 ckpt_path 매개변수를 사용하여 모든 초기화(setup) 완료 후 가중치를 로드합니다.
+        # 주의: manual setup() 호출은 프레임워크 생명주기를 방해할 수 있으므로 제거하였습니다.
         ckpt_path = args.model_path if args.model_path and os.path.exists(args.model_path) else None
         if ckpt_path:
-            logger.info(f"[*] 엔진을 통해 가중치 로드 예정: {ckpt_path}")
+            logger.info(f"[*] Spec-Compliant Loading: 엔진을 통해 가중치 로드 예정 ({ckpt_path})")
 
         early_stop = EarlyStopping(
             monitor="image_AUROC", 

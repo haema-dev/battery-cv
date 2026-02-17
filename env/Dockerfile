@@ -1,4 +1,4 @@
-# Build trigger: NumPy 1.x strict lock - v3
+# Build trigger: Matplotlib <3.8.0 fix - v4
 FROM mcr.microsoft.com/azureml/openmpi4.1.0-ubuntu22.04:latest
 
 # 1. 시스템 의존성 설치 (OpenGL 및 필수 라이브러리)

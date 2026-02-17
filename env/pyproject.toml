@@ -31,6 +31,7 @@ dependencies = [
     "freia>=0.2.0,<1.0.0",    # FastFlow 필수 의존성
     "omegaconf>=2.1.1,<3.0.0",
     "rich>=13.5.2,<14.0.0",
+    "matplotlib>=3.4.3,<3.8.0", # tostring_rgb 삭제 방지 (시각화 에러 해결)
     "open_clip_torch>=2.23.0,<2.26.1", # Anomalib 공식 권장 범위
     "openvino>=2024.0.0,<2025.0.0",
 ]

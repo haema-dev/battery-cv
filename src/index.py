@@ -128,15 +128,20 @@ def main():
                 state_dict = state_dict["model"]
             
             # [수수술적 로깅] 가중치 로드 현황 정밀 진단
-            model_keys = set(model.state_dict().keys())
+            # Anomalib 1.1.3의 Fastflow는 내부 self.model에 실제 파라미터가 있음
+            target_model = model.model if hasattr(model, "model") else model
+            model_keys = set(target_model.state_dict().keys())
             loaded_keys = set(state_dict.keys())
             intersect_keys = model_keys.intersection(loaded_keys)
             
-            logger.info(f"[*] 가중치 분석: 모델 키({len(model_keys)}개), 체크포인트 키({len(loaded_keys)}개)")
+            logger.info(f"[*] 가중치 분석: 대상 모델 키({len(model_keys)}개), 체크포인트 키({len(loaded_keys)}개)")
             logger.info(f"[*] 매칭된 키 개수: {len(intersect_keys)}개")
             
+            # [수정] ZeroDivisionError 방지 가드 추가
+            match_rate = (len(intersect_keys) / len(model_keys) * 100) if len(model_keys) > 0 else 0
+            
             model.load_state_dict(state_dict, strict=False)
-            logger.success(f"[OK] 가중치 주입 완료 (매칭율: {len(intersect_keys)/len(model_keys)*100:.1f}%)")
+            logger.success(f"[OK] 가중치 주입 완료 (매칭율: {match_rate:.1f}%)")
 
         early_stop = EarlyStopping(
             monitor="image_AUROC", 

@@ -1,0 +1,38 @@
+name: 02_Classification_Train
+
+on:
+  push:
+    branches:
+      - ch_classification_1
+    paths:
+      - "src/classification/**"
+      - "classification-train-job.yml"
+      - "classification-train-job-multigpu.yml"
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Install Azure ML CLI
+        run: |
+          az extension add -n ml --yes
+          az config set extension.dynamic_install_allow_preview=true
+
+      - name: Configure Azure ML
+        run: |
+          az configure --defaults \
+            group=${{ secrets.AZURE_RESOURCE_GROUP }} \
+            workspace=${{ secrets.AZURE_WORKSPACE }}
+
+      - name: Run Classification Training Job (4-GPU)
+        run: |
+          JOB_NAME=$(az ml job create --file classification-train-job-multigpu.yml --query name -o tsv)
+
+          echo "JOB_NAME=$JOB_NAME" >> $GITHUB_ENV
+          echo "✅ Classification Training Job 제출 완료!"

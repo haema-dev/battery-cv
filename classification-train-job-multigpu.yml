@@ -1,0 +1,30 @@
+$schema: https://azuremlschemas.azureedge.net/latest/commandJob.schema.json
+type: command
+display_name: "S2_Defect_Classification_Training_4GPU"
+experiment_name: Battery_S2_Classification
+
+code: src/classification
+command: >-
+  python train_entry.py
+  --data_path ${{inputs.data_path}}
+  --output_dir ./outputs
+  --epochs 50
+  --batch_size 64
+  --lr 0.002
+  --num_workers 8
+
+inputs:
+  data_path:
+    type: uri_folder
+    path: azureml:battery-classification_data@latest
+
+compute: azureml:gpu-advanced
+environment: azureml:env-yolo@latest
+
+resources:
+  instance_count: 1
+  shm_size: "16g"
+
+distribution:
+  type: pytorch
+  process_count_per_instance: 4

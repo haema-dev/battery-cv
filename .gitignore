@@ -6,3 +6,12 @@ __pycache__/
 .ipynb_checkpoints/
 .DS_Store
 .env
+
+# === 1차 모델 (이상탐지) 파일 - ch_classification_1 브랜치에서 불필요 ===
+pipeline.yml
+src/train/
+src/inference/
+src/preprocess/
+command/
+temp_source.txt
+.github/workflows/tain.yml

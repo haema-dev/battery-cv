@@ -124,6 +124,12 @@ def main():
                 new_state_dict[new_key] = value
             state_dict = new_state_dict
 
+            # [디버깅] 실제 키 이름 5개만 출력해서 비교해봅시다.
+            logger.info("======= [DEBUG] KEY COMPARISON =======")
+            logger.info(f"Model Keys (Example): {list(model.state_dict().keys())[:5]}")
+            logger.info(f"Ckpt Keys (Example): {list(state_dict.keys())[:5]}")
+            logger.info("======================================")
+
             # [수수술적 로깅] 가중치 로드 현황 정밀 진단
             model_keys = set(model.state_dict().keys())
             loaded_keys = set(state_dict.keys())

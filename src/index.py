@@ -113,36 +113,27 @@ def main():
             logger.info(f"[*] 사전 학습된 가중치 로드: {args.model_path}")
             ckpt = torch.load(args.model_path, map_location="cpu")
             state_dict = ckpt.get("state_dict", ckpt)
-            if isinstance(state_dict, dict) and "model" in state_dict:
-                state_dict = state_dict["model"]
-            
-            # [핵심 수정] 가중치 키 이름 보정 ('model.' 접두어 제거)
-            # Lightning 기반 체크포인트와 순정 모델 간의 키 이름을 일치시킵니다.
-            new_state_dict = {}
-            for key, value in state_dict.items():
-                new_key = key.replace("model.", "") if key.startswith("model.") else key
-                new_state_dict[new_key] = value
-            state_dict = new_state_dict
-
-            # [디버깅] 실제 키 이름 5개만 출력해서 비교해봅시다.
-            logger.info("======= [DEBUG] KEY COMPARISON =======")
-            logger.info(f"Model Keys (Example): {list(model.state_dict().keys())[:5]}")
-            logger.info(f"Ckpt Keys (Example): {list(state_dict.keys())[:5]}")
-            logger.info("======================================")
-
-            # [수수술적 로깅] 가중치 로드 현황 정밀 진단
+            # [최종 해결책: Smart Weight Matcher]
+            # 모델의 어느 계층(전체 vs 내부)에 가중치가 더 많이 매칭되는지 자동 판별합니다.
             model_keys = set(model.state_dict().keys())
+            inner_keys = set(model.model.state_dict().keys()) if hasattr(model, "model") else set()
             loaded_keys = set(state_dict.keys())
-            intersect_keys = model_keys.intersection(loaded_keys)
             
-            logger.info(f"[*] 가중치 분석: 대상 모델 키({len(model_keys)}개), 체크포인트 키({len(loaded_keys)}개)")
-            logger.info(f"[*] 매칭된 키 개수: {len(intersect_keys)}개")
+            match_top = len(model_keys.intersection(loaded_keys))
+            match_inner = len(inner_keys.intersection(loaded_keys))
             
-            # [수정] ZeroDivisionError 방지 가드 추가
-            match_rate = (len(intersect_keys) / len(model_keys) * 100) if len(model_keys) > 0 else 0
+            logger.info(f"[*] 매칭 분석: 상위 계층({match_top}개), 내부 계층({match_inner}개)")
             
-            model.load_state_dict(state_dict, strict=False)
-            logger.success(f"[OK] 가중치 주입 완료 (매칭율: {match_rate:.1f}%)")
+            if match_inner > match_top and match_inner > 0:
+                logger.info("[*] 구조 감지: 내부 모델(model.model) 가중치로 인식되었습니다.")
+                model.model.load_state_dict(state_dict, strict=False)
+                match_rate = (match_inner / len(inner_keys) * 100) if len(inner_keys) > 0 else 0
+            else:
+                logger.info("[*] 구조 감지: 전체 모델(LightningModule) 가중치로 인식되었습니다.")
+                model.load_state_dict(state_dict, strict=False)
+                match_rate = (match_top / len(model_keys) * 100) if len(model_keys) > 0 else 0
+            
+            logger.success(f"[OK] 가중치 주입 완료 (최종 매칭율: {match_rate:.1f}%)")
 
         early_stop = EarlyStopping(
             monitor="image_AUROC", 

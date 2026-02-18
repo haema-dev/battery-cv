@@ -245,23 +245,27 @@ def main():
     logger.info(f"  Image dir: {img_dir}")
 
     # --- DDP: Azure ML이 process_count_per_instance=4로 프로세스 관리 ---
-    # Azure ML이 WORLD_SIZE/RANK/LOCAL_RANK/MASTER_ADDR/MASTER_PORT 설정
-    # 각 프로세스가 1 GPU 담당, Lightning이 env var에서 DDP 자동 감지
     local_rank = int(os.environ.get("LOCAL_RANK", 0))
     world_size = int(os.environ.get("WORLD_SIZE", 1))
     is_main_process = local_rank == 0
-    logger.info(f"  DDP: LOCAL_RANK={local_rank}, WORLD_SIZE={world_size}")
 
-    # --- GPU 감지 ---
+    # 각 프로세스가 자기 GPU만 보이도록 설정 (LOCAL_RANK → CUDA_VISIBLE_DEVICES)
+    if world_size > 1:
+        os.environ["CUDA_VISIBLE_DEVICES"] = str(local_rank)
+        logger.info(f"  DDP: LOCAL_RANK={local_rank}, WORLD_SIZE={world_size}, CUDA_VISIBLE_DEVICES={local_rank}")
+    else:
+        logger.info(f"  Single process mode: WORLD_SIZE={world_size}")
+
+    # --- GPU 감지 (CUDA_VISIBLE_DEVICES 설정 후) ---
     num_gpus = torch.cuda.device_count()
-    logger.info(f"  Available GPUs: {num_gpus}")
+    logger.info(f"  Visible GPUs: {num_gpus}")
 
-    # Azure ML DDP 표준 패턴: 각 프로세스가 1 GPU 담당
+    # Azure ML DDP: CUDA_VISIBLE_DEVICES로 GPU 1개만 보이므로 devices=1
+    # DDP 통신은 Azure ML이 설정한 env var로 자동 처리
     if world_size > 1:
         use_devices = 1
         strategy = "ddp"
         accelerator = "gpu"
-        logger.info(f"  Azure ML DDP mode: {world_size} processes, each with 1 GPU")
     elif num_gpus >= 1:
         use_devices = 1
         strategy = "auto"

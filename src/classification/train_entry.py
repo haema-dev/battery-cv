@@ -276,9 +276,9 @@ def main():
     effective_batch = args.batch_size * use_devices
     logger.info(f"  Effective batch size: {args.batch_size} x {use_devices} = {effective_batch}")
 
-    # --- MLflow ---
-    is_rank_zero = True
-    if is_rank_zero:
+    # --- MLflow (인증 실패 시 skip) ---
+    mlflow_active = False
+    try:
         mlflow.start_run()
         mlflow.log_params({
             "epochs": args.epochs,
@@ -289,6 +289,10 @@ def main():
             "num_gpus": use_devices,
             "strategy": strategy,
         })
+        mlflow_active = True
+        logger.info("  MLflow tracking enabled")
+    except Exception as e:
+        logger.warning(f"  MLflow init failed (training will continue without tracking): {e}")
 
     try:
         # --- DataModule ---
@@ -349,7 +353,7 @@ def main():
         logger.info(f"Best val_f1: {best_score:.4f}")
 
         # --- Save final outputs ---
-        if is_rank_zero:
+        if mlflow_active:
             mlflow.log_metrics({
                 "best_val_f1": best_score.item() if best_score else 0.0,
                 "training_time_sec": elapsed,
@@ -367,7 +371,7 @@ def main():
         with open(os.path.join(output_dir, "training_info.json"), "w") as f:
             json.dump(info, f, indent=2)
 
-        if is_rank_zero:
+        if mlflow_active:
             mlflow.log_artifacts(output_dir)
         logger.success("All outputs saved successfully.")
 
@@ -375,7 +379,7 @@ def main():
         logger.error(f"Training failed: {e}")
         raise
     finally:
-        if is_rank_zero:
+        if mlflow_active:
             mlflow.end_run()
 
 

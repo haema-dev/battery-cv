@@ -227,13 +227,19 @@ def main():
             raise FileNotFoundError(f"No CSV found in {data_path}")
 
     if not os.path.isdir(img_dir):
-        # 이미지가 루트에 바로 있을 수도 있음
-        pngs = [f for f in os.listdir(data_path) if f.endswith(".png")]
-        if pngs:
-            img_dir = data_path
-            logger.info(f"  Images found in root: {len(pngs)} files")
+        # processed_images/ 폴더도 확인
+        alt_img_dir = os.path.join(data_path, "processed_images")
+        if os.path.isdir(alt_img_dir):
+            img_dir = alt_img_dir
+            logger.info(f"  Images found in processed_images/")
         else:
-            raise FileNotFoundError(f"No images directory found in {data_path}")
+            # 이미지가 루트에 바로 있을 수도 있음
+            pngs = [f for f in os.listdir(data_path) if f.endswith(".png")]
+            if pngs:
+                img_dir = data_path
+                logger.info(f"  Images found in root: {len(pngs)} files")
+            else:
+                raise FileNotFoundError(f"No images directory found in {data_path}")
 
     logger.info(f"  CSV: {csv_path}")
     logger.info(f"  Image dir: {img_dir}")

@@ -15,3 +15,7 @@ src/preprocess/
 command/
 temp_source.txt
 .github/workflows/tain.yml
+
+# === 로컬 실험 / Azure ML Job 직접 제출 파일 ===
+segmentation-experiment-job.yml
+src/classification/segment_experiment.py

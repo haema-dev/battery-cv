@@ -167,31 +167,61 @@ def main():
             logger.info("🔍 [ST5] Evaluation 모드 시작")
             engine.test(model=model, datamodule=datamodule, ckpt_path=None)
         elif args.mode == "prediction":
-            logger.info("📡 [ST5] 전수검사 (Prediction) 모드 시작")
+            logger.info("📡 [ST5] 전수검사 (Prediction) 모드 및 Heatmap 생성 시작")
+            from anomalib.utils.visualization import ImageVisualizer
+            # Anomalib 1.1.3 시각화 도구 준비
+            visualizer = ImageVisualizer(mode="full", task="classification")
+            
             predictions = engine.predict(model=model, dataloaders=loader)
             
             # 결과 수집 및 CSV 저장 (Stage 6 리포팅용)
             import pandas as pd
             records = []
+            
+            # 히트맵 저장 폴더 생성
+            vis_dir = OUTPUT_DIR / "visualizations"
+            vis_dir.mkdir(parents=True, exist_ok=True)
+            
             for batch in predictions:
                 # Anomalib 1.1.3 Predict 결과 구조에 맞춰 데이터 추출
                 paths = batch["image_path"]
+                images = batch["image"]
+                anomaly_maps = batch["anomaly_maps"]
                 scores = batch["pred_scores"].cpu().numpy()
                 labels = batch["pred_labels"].cpu().numpy()
                 
-                for path, score, label in zip(paths, scores, labels):
+                for i in range(len(paths)):
+                    path = paths[i]
+                    score = float(scores[i])
+                    label = bool(labels[i])
+                    
+                    # 히트맵 이미지 생성 (RGB numpy array 반환)
+                    res_image = visualizer.visualize(
+                        image=images[i],
+                        anomaly_map=anomaly_maps[i],
+                        score=score,
+                        label=label
+                    )
+                    
+                    # 파일 저장 로직 (BGR 변환 후 OpenCV 사용)
+                    file_name = Path(path).name
+                    save_path = vis_dir / f"vis_{file_name}"
+                    cv2.imwrite(str(save_path), cv2.cvtColor(res_image, cv2.COLOR_RGB2BGR))
+                    
                     records.append({
                         "file_path": path,
-                        "file_name": Path(path).name,
+                        "file_name": file_name,
                         "parent_dir": Path(path).parent.name,
-                        "anomaly_score": float(score),
-                        "is_defect": bool(label)
+                        "anomaly_score": score,
+                        "is_defect": label,
+                        "vis_path": str(save_path)
                     })
             
             df = pd.DataFrame(records)
             csv_path = OUTPUT_DIR / "results.csv"
             df.to_csv(csv_path, index=False)
-            logger.success(f"📊 전수검사 결과 저장 완료: {csv_path} ({len(df)} images)")
+            logger.success(f"📊 전수검사 및 히트맵 저장 완료: {vis_dir} ({len(df)} images)")
+            logger.success(f"📊 CSV 완료: {csv_path}")
         
         # 최종 가중치 저장 및 결과 보고
         torch.save(model.state_dict(), OUTPUT_DIR / "model.pt")

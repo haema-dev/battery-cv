@@ -1,0 +1,22 @@
+$schema: https://azuremlschemas.azureedge.net/latest/commandJob.schema.json
+type: command
+display_name: "S2_Defect_Classification_Preprocess"
+experiment_name: Battery_S2_Classification
+
+code: src/classification
+command: >-
+  python preprocess_entry.py
+  --csv_path ${{inputs.csv_data}}
+  --output_dir ./outputs
+  --target_size 256
+
+inputs:
+  csv_data:
+    type: uri_folder
+    path: azureml:battery-classification_data@latest
+
+compute: azureml:cpu-standard
+environment: azureml:env-yolo@latest
+
+environment_variables:
+  BLOB_SAS_TOKEN: ${{secrets.BLOB_SAS_TOKEN}}

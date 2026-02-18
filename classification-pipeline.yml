@@ -1,0 +1,52 @@
+$schema: https://azuremlschemas.azureedge.net/latest/pipelineJob.schema.json
+type: pipeline
+display_name: "S2_Defect_Classification_Pipeline"
+experiment_name: Battery_S2_Classification
+
+jobs:
+  preprocess:
+    type: command
+    code: src/classification
+    command: >-
+      python preprocess_entry.py
+      --csv_path ${{inputs.csv_data}}
+      --output_dir ${{outputs.processed_data}}
+      --target_size 256
+    inputs:
+      csv_data:
+        type: uri_folder
+        path: azureml:battery-classification_data@latest
+    outputs:
+      processed_data:
+        type: uri_folder
+        mode: rw_mount
+    compute: azureml:cpu-standard
+    environment: azureml:env-yolo@latest
+    environment_variables:
+      BLOB_SAS_TOKEN: ${{parent.inputs.blob_sas_token}}
+
+  train:
+    type: command
+    code: src/classification
+    command: >-
+      python train_entry.py
+      --data_path ${{inputs.data_path}}
+      --output_dir ./outputs
+      --epochs 50
+      --batch_size 64
+      --lr 0.002
+      --num_workers 8
+    inputs:
+      data_path: ${{parent.jobs.preprocess.outputs.processed_data}}
+    compute: azureml:gpu-advanced
+    environment: azureml:env-yolo@latest
+    resources:
+      instance_count: 1
+      shm_size: "16g"
+    distribution:
+      type: pytorch
+      process_count_per_instance: 4
+
+inputs:
+  blob_sas_token:
+    type: string

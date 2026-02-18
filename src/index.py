@@ -19,6 +19,7 @@ from anomalib.loggers import AnomalibMLFlowLogger
 from pathlib import Path
 from torchvision.transforms.v2 import Compose, Normalize, Resize
 from lightning.pytorch.callbacks import EarlyStopping
+import lightning
 
 def set_seed(seed):
     random.seed(seed)
@@ -39,6 +40,88 @@ def main():
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     parser.add_argument("--lr", type=float, default=0.0001, help="Learning rate")
     parser.add_argument("--weight_decay", type=float, default=1e-5, help="Weight decay")
+    parser.add_argument("--mode", type=str, default="evaluation", choices=["training", "evaluation"], help="Execution mode")
+
+def convert_to_lightning_checkpoint(model_path, model, output_dir):
+    """
+    [Rigorous Fix] raw state_dict를 Lightning 정식 체크포인트 포맷으로 래핑합니다.
+    사용자님의 제안에 따라 메타데이터를 추가하여 엔진의 공식 로드 경로를 활성화합니다.
+    """
+    logger.info(f"[*] 가중치 규격 변환 및 래핑 시작: {model_path}")
+    raw_ckpt = torch.load(model_path, map_location="cpu")
+    state_dict = raw_ckpt.get("state_dict", raw_ckpt)
+    
+    # [Smart Matcher Logic] 모델 키 구조 분석 및 보정
+    model_keys = set(model.state_dict().keys())
+    has_model_prefix = any(k.startswith("model.") for k in model_keys)
+    ckpt_has_prefix = any(k.startswith("model.") for k in state_dict.keys())
+    
+    final_state_dict = {}
+    if has_model_prefix and not ckpt_has_prefix:
+        logger.info("[*] 규격 조정: 가중치 키에 'model.' 접두어를 추가합니다.")
+        for k, v in state_dict.items():
+            final_state_dict[f"model.{k}"] = v
+    elif not has_model_prefix and ckpt_has_prefix:
+        logger.info("[*] 규격 조정: 가중치 키에서 'model.' 접두어를 제거합니다.")
+        for k, v in state_dict.items():
+            final_state_dict[k.replace("model.", "")] = v
+    else:
+        final_state_dict = state_dict
+
+    # 가짜 체크포인트 생성 (Lightning 필수 메타데이터 포함)
+    lightning_ckpt = {
+        "state_dict": final_state_dict,
+        "epoch": 0,
+        "global_step": 0,
+        "pytorch-lightning_version": getattr(lightning, "__version__", "2.1.0"),
+        "callbacks": {},
+        "optimizer_states": [],
+        "lr_schedulers": []
+    }
+    
+def convert_to_lightning_checkpoint(model_path, model, output_dir):
+    """
+    [Strict Fix] raw state_dict를 Lightning 정식 체크포인트 포맷으로 변환합니다.
+    엔진의 공식 ckpt_path를 사용하여 리셋 현상을 원천 차단합니다.
+    """
+    logger.info(f"[*] 가중치 규격 변환 시작: {model_path}")
+    raw_ckpt = torch.load(model_path, map_location="cpu")
+    state_dict = raw_ckpt.get("state_dict", raw_ckpt)
+    
+    # [Smart Matcher Logic] 모델 키 구조 분석
+    model_keys = set(model.state_dict().keys())
+    # 보통 Anomalib LightningModule은 'model.' 접두어를 가집니다.
+    # 만약 로드한 가중치에 'model.'이 없는데 모델은 있다면 붙여줘야 합니다.
+    
+    has_model_prefix = any(k.startswith("model.") for k in model_keys)
+    ckpt_has_prefix = any(k.startswith("model.") for k in state_dict.keys())
+    
+    final_state_dict = {}
+    if has_model_prefix and not ckpt_has_prefix:
+        logger.info("[*] 규격 조정: 가중치 키에 'model.' 접두어를 추가합니다.")
+        for k, v in state_dict.items():
+            final_state_dict[f"model.{k}"] = v
+    elif not has_model_prefix and ckpt_has_prefix:
+        logger.info("[*] 규격 조정: 가중치 키에서 'model.' 접두어를 제거합니다.")
+        for k, v in state_dict.items():
+            final_state_dict[k.replace("model.", "")] = v
+    else:
+        final_state_dict = state_dict
+
+    # Lightning 필수 메타데이터 포함
+    new_ckpt = {
+        "state_dict": final_state_dict,
+        "epoch": 0,
+        "global_step": 0,
+        "pytorch-lightning_version": getattr(lightning, "__version__", "2.1.0"),
+        "callbacks": {},
+        "optimizer_states": [],
+        "lr_schedulers": []
+    }
+    
+    save_path = Path(output_dir) / "wrapped_checkpoint.ckpt"
+    torch.save(new_ckpt, save_path)
+    return str(save_path)
     parser.add_argument("--mode", type=str, default="evaluation", choices=["training", "evaluation"], help="Execution mode")
 
     args = parser.parse_args()
@@ -106,37 +189,12 @@ def main():
             flow_steps=8
         )
         
-        # [Stage 2 Integration] 모델 레이어 빌드 및 가중치 수동 주입
-        # 엔진의 ckpt_path는 Lightning 정식 체크포인트를 기대하므로, 
-        # state_dict만 들어있는 파일의 경우 수동 로드 후 ckpt_path=None으로 실행해야 합니다.
-        model.setup(datamodule)
-        
+        # [Rigorous Strategy] 가짜 체크포인트 생성 및 엔진 전달
+        # 엔진이 "직접" 로드하게 함으로써 프레임워크 초기화에 의한 리셋을 방지합니다.
+        tmp_ckpt_path = None
         if args.model_path and os.path.exists(args.model_path):
-            logger.info(f"[*] 가중치 수동 로드 시작: {args.model_path}")
-            ckpt = torch.load(args.model_path, map_location="cpu")
-            state_dict = ckpt.get("state_dict", ckpt)
-            
-            # [Smart Weight Matcher]
-            # 모델의 어느 계층(전체 vs 내부)에 가중치가 더 많이 매칭되는지 자동 판별합니다.
-            model_keys = set(model.state_dict().keys())
-            inner_keys = set(model.model.state_dict().keys()) if hasattr(model, "model") else set()
-            loaded_keys = set(state_dict.keys())
-            
-            match_top = len(model_keys.intersection(loaded_keys))
-            match_inner = len(inner_keys.intersection(loaded_keys))
-            
-            logger.info(f"[*] 매칭 분석: 상위 계층({match_top}개), 내부 계층({match_inner}개)")
-            
-            if match_inner > match_top and match_inner > 0:
-                logger.info("[*] 구조 감지: 내부 모델(model.model) 가중치로 인식되었습니다.")
-                model.model.load_state_dict(state_dict, strict=False)
-                match_rate = (match_inner / len(inner_keys) * 100) if len(inner_keys) > 0 else 0
-            else:
-                logger.info("[*] 구조 감지: 전체 모델(LightningModule) 가중치로 인식되었습니다.")
-                model.load_state_dict(state_dict, strict=False)
-                match_rate = (match_top / len(model_keys) * 100) if len(model_keys) > 0 else 0
-            
-            logger.success(f"[OK] 가중치 주입 완료 (최종 매칭율: {match_rate:.1f}%)")
+            tmp_ckpt_path = convert_to_lightning_checkpoint(args.model_path, model, OUTPUT_DIR)
+            logger.info(f"[*] 임시 체크포인트 준비 완료: {tmp_ckpt_path}")
 
         early_stop = EarlyStopping(
             monitor="image_AUROC", 
@@ -165,11 +223,11 @@ def main():
             logger.info(" [Mode: Evaluation] 학습을 생략하고 평가를 수행합니다.")
             logger.info(" Calculating final metrics and thresholds...")
             
-            # [핵심 수정] ckpt_path=None으로 설정하여 이미 로드된 가중치를 사용하도록 함
+            # [최종 엄정 조치] 래핑된 체크포인트를 공식 ckpt_path를 통해 엔진에 전달
             engine.test(
                 model=model, 
                 datamodule=datamodule, 
-                ckpt_path=None
+                ckpt_path=tmp_ckpt_path
             )
         
         # [수정] 임계값 접근 안전성 확보

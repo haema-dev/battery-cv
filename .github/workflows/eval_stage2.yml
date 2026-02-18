@@ -4,6 +4,7 @@ on:
     branches:
       - tk_test_4
       - tk_test_5
+      - tk_test_6
   workflow_dispatch:
 
 jobs:

@@ -244,28 +244,25 @@ def main():
     logger.info(f"  CSV: {csv_path}")
     logger.info(f"  Image dir: {img_dir}")
 
-    # --- DDP rank 확인 (환경변수 정리 전) ---
-    is_main_process = int(os.environ.get("LOCAL_RANK", 0)) == 0
-
-    # --- Azure ML 분산 환경변수 정리 (Lightning이 DDP를 직접 관리) ---
-    for env_key in ["WORLD_SIZE", "RANK", "LOCAL_RANK", "MASTER_ADDR", "MASTER_PORT"]:
-        if env_key in os.environ:
-            logger.info(f"  Removing Azure ML env: {env_key}={os.environ[env_key]}")
-            del os.environ[env_key]
+    # --- DDP: Azure ML이 process_count_per_instance=4로 프로세스 관리 ---
+    # Azure ML이 WORLD_SIZE/RANK/LOCAL_RANK/MASTER_ADDR/MASTER_PORT 설정
+    # 각 프로세스가 1 GPU 담당, Lightning이 env var에서 DDP 자동 감지
+    local_rank = int(os.environ.get("LOCAL_RANK", 0))
+    world_size = int(os.environ.get("WORLD_SIZE", 1))
+    is_main_process = local_rank == 0
+    logger.info(f"  DDP: LOCAL_RANK={local_rank}, WORLD_SIZE={world_size}")
 
     # --- GPU 감지 ---
     num_gpus = torch.cuda.device_count()
     logger.info(f"  Available GPUs: {num_gpus}")
-    for i in range(num_gpus):
-        logger.info(f"    GPU {i}: {torch.cuda.get_device_name(i)} ({torch.cuda.get_device_properties(i).total_memory / 1e9:.1f} GB)")
 
-    # GPU 설정: Lightning이 DDP를 직접 관리 (process_count_per_instance=1)
-    if num_gpus > 1:
-        use_devices = min(args.devices, num_gpus) if args.devices > 0 else num_gpus
+    # Azure ML DDP 표준 패턴: 각 프로세스가 1 GPU 담당
+    if world_size > 1:
+        use_devices = 1
         strategy = "ddp"
         accelerator = "gpu"
-        logger.info(f"  Multi-GPU: {use_devices} devices, strategy=ddp")
-    elif num_gpus == 1:
+        logger.info(f"  Azure ML DDP mode: {world_size} processes, each with 1 GPU")
+    elif num_gpus >= 1:
         use_devices = 1
         strategy = "auto"
         accelerator = "gpu"
@@ -274,10 +271,10 @@ def main():
         strategy = "auto"
         accelerator = "cpu"
 
-    logger.info(f"  Using: {use_devices} device(s), strategy={strategy}, accelerator={accelerator}")
+    logger.info(f"  Using: devices={use_devices}, strategy={strategy}, accelerator={accelerator}")
 
-    effective_batch = args.batch_size * use_devices
-    logger.info(f"  Effective batch size: {args.batch_size} x {use_devices} = {effective_batch}")
+    effective_batch = args.batch_size * world_size
+    logger.info(f"  Effective batch size: {args.batch_size} x {world_size} = {effective_batch}")
 
     # --- MLflow (main process만, 인증 실패 시 skip) ---
     mlflow_active = False
@@ -290,7 +287,7 @@ def main():
                 "effective_batch_size": effective_batch,
                 "lr": args.lr,
                 "freeze_backbone": not args.no_freeze,
-                "num_gpus": use_devices,
+                "num_gpus": world_size,
                 "strategy": strategy,
             })
             mlflow_active = True
@@ -367,7 +364,7 @@ def main():
             "best_checkpoint": best_path,
             "best_val_f1": best_score.item() if best_score else 0.0,
             "training_time_sec": elapsed,
-            "num_gpus": use_devices,
+            "num_gpus": world_size,
             "strategy": strategy,
             "epochs_completed": trainer.current_epoch,
             "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -389,4 +386,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-# success plz

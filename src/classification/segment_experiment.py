@@ -140,6 +140,24 @@ def segment_otsu(img):
     return mask
 
 
+def segment_hsv_s(img):
+    """HSV S채널(채도) 기반 Otsu - 금속 배터리 vs 배경 분리"""
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    s_channel = hsv[:, :, 1]
+    blurred = cv2.GaussianBlur(s_channel, (5, 5), 0)
+    _, binary = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
+    binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel, iterations=3)
+    binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel, iterations=2)
+    contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return np.zeros(img.shape[:2], dtype=np.uint8)
+    largest = max(contours, key=cv2.contourArea)
+    mask = np.zeros(img.shape[:2], dtype=np.uint8)
+    cv2.drawContours(mask, [largest], -1, 255, -1)
+    return mask
+
+
 def segment_canny(img):
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
@@ -253,6 +271,7 @@ def main():
     parser.add_argument("--output_dir", type=str, default="./outputs")
     parser.add_argument("--sam_model", type=str, default="vit_b", choices=["vit_b", "vit_l", "vit_h"])
     parser.add_argument("--skip_sam", action="store_true", help="Skip SAM (CPU only)")
+    parser.add_argument("--resize", type=int, default=0, help="Resize long edge before segmentation (0=원본)")
     args = parser.parse_args()
 
     output_dir = args.output_dir
@@ -317,12 +336,14 @@ def main():
         methods["SAM_point"] = lambda img: segment_sam_point(sam_predictor, cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
         methods["SAM_box"] = lambda img: segment_sam_box(sam_predictor, cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
     methods["Otsu"] = segment_otsu
+    methods["HSV_S"] = segment_hsv_s
     methods["Canny"] = segment_canny
     methods["GrabCut"] = segment_grabcut
 
     # --- 실행 ---
     results = {name: {"iou": [], "dice": [], "precision": [], "recall": [], "time": []} for name in methods}
     all_outlines = {}
+    per_image_rows = []  # per-image CSV 수집
 
     for i, fname in enumerate(pngs):
         img_path = os.path.join(img_dir, fname)
@@ -330,11 +351,24 @@ def main():
         if img is None:
             continue
 
-        # GT (있으면)
+        # 리사이징 전처리 (장축 기준, 비율 유지)
+        resize_scale = 1.0
+        if args.resize > 0:
+            h_orig, w_orig = img.shape[:2]
+            resize_scale = args.resize / max(h_orig, w_orig)
+            if resize_scale < 1.0:
+                img = cv2.resize(img, (int(w_orig * resize_scale), int(h_orig * resize_scale)))
+
+        # GT (있으면) — 원본 해상도로 생성 후 리사이징
         json_path = os.path.join(json_dir, fname.replace(".png", ".json"))
         gt_mask, gt_outline = None, None
         if os.path.exists(json_path):
-            gt_mask, gt_outline = get_gt_mask_and_outline(img.shape, json_path)
+            orig_shape = (int(img.shape[0] / resize_scale), int(img.shape[1] / resize_scale), 3) if resize_scale < 1.0 else img.shape
+            gt_mask, gt_outline = get_gt_mask_and_outline(orig_shape, json_path)
+            if gt_mask is not None and resize_scale < 1.0:
+                gt_mask = cv2.resize(gt_mask, (img.shape[1], img.shape[0]), interpolation=cv2.INTER_NEAREST)
+                if gt_outline is not None:
+                    gt_outline = (gt_outline * resize_scale).astype(np.int32)
 
         method_results_for_vis = []
         file_outlines = {}
@@ -355,6 +389,7 @@ def main():
                 m = calc_metrics(pred_mask, gt_mask)
                 for k, v in m.items():
                     results[name][k].append(v)
+                per_image_rows.append(f"{fname},{name},{m['iou']:.4f},{m['dice']:.4f},{m['precision']:.4f},{m['recall']:.4f}")
 
             # 마스크 저장
             mask_path = os.path.join(masks_dir, f"{Path(fname).stem}_{name}.png")
@@ -385,8 +420,9 @@ def main():
     logger.info(header)
     logger.info("-" * 70)
 
+    resize_info = f" (resized: {args.resize})" if args.resize > 0 else " (original)"
     report_lines = [
-        "Battery Segmentation Comparison Results",
+        f"Battery Segmentation Comparison Results{resize_info}",
         f"Images: {len(pngs)}",
         "=" * 70,
         header,
@@ -422,6 +458,15 @@ def main():
         f.write("\n".join(report_lines))
 
     logger.info(f"\nBEST: {best_method} (mean IoU: {best_iou:.4f})")
+
+    # per-image CSV 저장
+    if per_image_rows:
+        csv_path = os.path.join(output_dir, "per_image_metrics.csv")
+        with open(csv_path, "w") as f:
+            f.write("filename,method,iou,dice,precision,recall\n")
+            f.write("\n".join(per_image_rows) + "\n")
+        logger.info(f"Per-image metrics saved to {csv_path}")
+
     logger.info(f"Results saved to {output_dir}/")
 
 

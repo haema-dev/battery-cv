@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Version trigger for Azure ML - v4
+# Version trigger for Azure ML - v5
 import os
 import sys
 import torch
@@ -28,19 +28,6 @@ def set_seed(seed):
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
 
-
-def main():
-    # ================== 1. Input/Output 설정 ==================== #
-    parser = argparse.ArgumentParser()    
-    parser.add_argument("--data_path", type=str, required=True, help="Path to mounted data asset")
-    parser.add_argument("--model_path", type=str, default=None, help="Path to pre-trained model checkpoint (Optional for Eval Mode)")
-    parser.add_argument('--output_dir', type=str, default='./outputs')
-    parser.add_argument("--epochs", type=int, default=50)
-    parser.add_argument("--backbone", type=str, default="resnet18", help="Feature extractor backbone")
-    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
-    parser.add_argument("--lr", type=float, default=0.0001, help="Learning rate")
-    parser.add_argument("--weight_decay", type=float, default=1e-5, help="Weight decay")
-    parser.add_argument("--mode", type=str, default="evaluation", choices=["training", "evaluation"], help="Execution mode")
 
 def convert_to_lightning_checkpoint(model_path, model, output_dir):
     """
@@ -79,49 +66,22 @@ def convert_to_lightning_checkpoint(model_path, model, output_dir):
         "lr_schedulers": []
     }
     
-def convert_to_lightning_checkpoint(model_path, model, output_dir):
-    """
-    [Strict Fix] raw state_dict를 Lightning 정식 체크포인트 포맷으로 변환합니다.
-    엔진의 공식 ckpt_path를 사용하여 리셋 현상을 원천 차단합니다.
-    """
-    logger.info(f"[*] 가중치 규격 변환 시작: {model_path}")
-    raw_ckpt = torch.load(model_path, map_location="cpu")
-    state_dict = raw_ckpt.get("state_dict", raw_ckpt)
-    
-    # [Smart Matcher Logic] 모델 키 구조 분석
-    model_keys = set(model.state_dict().keys())
-    # 보통 Anomalib LightningModule은 'model.' 접두어를 가집니다.
-    # 만약 로드한 가중치에 'model.'이 없는데 모델은 있다면 붙여줘야 합니다.
-    
-    has_model_prefix = any(k.startswith("model.") for k in model_keys)
-    ckpt_has_prefix = any(k.startswith("model.") for k in state_dict.keys())
-    
-    final_state_dict = {}
-    if has_model_prefix and not ckpt_has_prefix:
-        logger.info("[*] 규격 조정: 가중치 키에 'model.' 접두어를 추가합니다.")
-        for k, v in state_dict.items():
-            final_state_dict[f"model.{k}"] = v
-    elif not has_model_prefix and ckpt_has_prefix:
-        logger.info("[*] 규격 조정: 가중치 키에서 'model.' 접두어를 제거합니다.")
-        for k, v in state_dict.items():
-            final_state_dict[k.replace("model.", "")] = v
-    else:
-        final_state_dict = state_dict
+    wrapped_path = Path(output_dir) / "wrapped_checkpoint.ckpt"
+    torch.save(lightning_ckpt, wrapped_path)
+    return str(wrapped_path)
 
-    # Lightning 필수 메타데이터 포함
-    new_ckpt = {
-        "state_dict": final_state_dict,
-        "epoch": 0,
-        "global_step": 0,
-        "pytorch-lightning_version": getattr(lightning, "__version__", "2.1.0"),
-        "callbacks": {},
-        "optimizer_states": [],
-        "lr_schedulers": []
-    }
-    
-    save_path = Path(output_dir) / "wrapped_checkpoint.ckpt"
-    torch.save(new_ckpt, save_path)
-    return str(save_path)
+
+def main():
+    # ================== 1. Input/Output 설정 ==================== #
+    parser = argparse.ArgumentParser()    
+    parser.add_argument("--data_path", type=str, required=True, help="Path to mounted data asset")
+    parser.add_argument("--model_path", type=str, default=None, help="Path to pre-trained model checkpoint (Optional for Eval Mode)")
+    parser.add_argument('--output_dir', type=str, default='./outputs')
+    parser.add_argument("--epochs", type=int, default=50)
+    parser.add_argument("--backbone", type=str, default="resnet18", help="Feature extractor backbone")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
+    parser.add_argument("--lr", type=float, default=0.0001, help="Learning rate")
+    parser.add_argument("--weight_decay", type=float, default=1e-5, help="Weight decay")
     parser.add_argument("--mode", type=str, default="evaluation", choices=["training", "evaluation"], help="Execution mode")
 
     args = parser.parse_args()
@@ -141,7 +101,6 @@ def convert_to_lightning_checkpoint(model_path, model, output_dir):
     dataset_root = base_path
 
     # ================== 2. MLflow & Output 설정 ==================== #
-    # [수정] 수동 mlflow.start_run() 제거 (AnomalibMLFlowLogger가 자동 관리)
     OUTPUT_DIR = Path(args.output_dir)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     
@@ -152,7 +111,6 @@ def convert_to_lightning_checkpoint(model_path, model, output_dir):
         # ================== 3. Anomalib 데이터 구성 ==================== #
         logger.info(f" 데이터셋 로딩 중: {dataset_root}")
         
-        # [Dynamic Detection] 'good'을 제외한 모든 폴더를 불량 카테고리로 수집
         abnormal_dirs = []
         if val_path.exists():
             abnormal_dirs = [f"validation/{d.name}" for d in val_path.iterdir() if d.is_dir() and d.name != "good"]
@@ -182,15 +140,12 @@ def convert_to_lightning_checkpoint(model_path, model, output_dir):
         # ================== 4. 모델 생성 및 초기화 ==================== #
         logger.info(f"🏗️ 모델 생성 중: FastFlow (Backbone: {args.backbone})")
         
-        # [수정] evaluator 인자 제거 (Engine이 자동 관리)
-        # [수정] Anomalib 순정 모델 사용 (가장 안전한 경로)
         model = Fastflow(
             backbone=args.backbone, 
             flow_steps=8
         )
         
         # [Rigorous Strategy] 가짜 체크포인트 생성 및 엔진 전달
-        # 엔진이 "직접" 로드하게 함으로써 프레임워크 초기화에 의한 리셋을 방지합니다.
         tmp_ckpt_path = None
         if args.model_path and os.path.exists(args.model_path):
             tmp_ckpt_path = convert_to_lightning_checkpoint(args.model_path, model, OUTPUT_DIR)
@@ -223,23 +178,19 @@ def convert_to_lightning_checkpoint(model_path, model, output_dir):
             logger.info(" [Mode: Evaluation] 학습을 생략하고 평가를 수행합니다.")
             logger.info(" Calculating final metrics and thresholds...")
             
-            # [최종 엄정 조치] 래핑된 체크포인트를 공식 ckpt_path를 통해 엔진에 전달
             engine.test(
                 model=model, 
                 datamodule=datamodule, 
                 ckpt_path=tmp_ckpt_path
             )
         
-        # [수정] 임계값 접근 안전성 확보
         if hasattr(model, "image_threshold"):
             try:
-                # .value가 프로젝트 버전에 따라 달라질 수 있으므로 안전하게 접근
                 thresh = model.image_threshold.value.item() if hasattr(model.image_threshold, "value") else model.image_threshold
                 logger.info(f" Calculated Image Threshold: {thresh:.4f}")
             except Exception as e:
                 logger.warning(f" Threshold 값을 읽어오는 데 실패했습니다: {e}")
 
-        # 결과 저장
         model_pt_path = OUTPUT_DIR / "model.pt"
         torch.save(model.state_dict(), model_pt_path)
         logger.success(f" [FINISH] 모든 결과가 {OUTPUT_DIR}에 저장되었습니다.")
@@ -250,7 +201,7 @@ def convert_to_lightning_checkpoint(model_path, model, output_dir):
         logger.debug(traceback.format_exc())
         raise
     finally:
-        pass # [수정] 수동 mlflow.end_run() 제거
+        pass
 
 if __name__ == "__main__":
     main()

@@ -244,6 +244,9 @@ def main():
     logger.info(f"  CSV: {csv_path}")
     logger.info(f"  Image dir: {img_dir}")
 
+    # --- DDP rank 확인 (환경변수 정리 전) ---
+    is_main_process = int(os.environ.get("LOCAL_RANK", 0)) == 0
+
     # --- Azure ML 분산 환경변수 정리 (Lightning이 DDP를 직접 관리) ---
     for env_key in ["WORLD_SIZE", "RANK", "LOCAL_RANK", "MASTER_ADDR", "MASTER_PORT"]:
         if env_key in os.environ:
@@ -276,23 +279,24 @@ def main():
     effective_batch = args.batch_size * use_devices
     logger.info(f"  Effective batch size: {args.batch_size} x {use_devices} = {effective_batch}")
 
-    # --- MLflow (인증 실패 시 skip) ---
+    # --- MLflow (main process만, 인증 실패 시 skip) ---
     mlflow_active = False
-    try:
-        mlflow.start_run()
-        mlflow.log_params({
-            "epochs": args.epochs,
-            "batch_size": args.batch_size,
-            "effective_batch_size": effective_batch,
-            "lr": args.lr,
-            "freeze_backbone": not args.no_freeze,
-            "num_gpus": use_devices,
-            "strategy": strategy,
-        })
-        mlflow_active = True
-        logger.info("  MLflow tracking enabled")
-    except Exception as e:
-        logger.warning(f"  MLflow init failed (training will continue without tracking): {e}")
+    if is_main_process:
+        try:
+            mlflow.start_run()
+            mlflow.log_params({
+                "epochs": args.epochs,
+                "batch_size": args.batch_size,
+                "effective_batch_size": effective_batch,
+                "lr": args.lr,
+                "freeze_backbone": not args.no_freeze,
+                "num_gpus": use_devices,
+                "strategy": strategy,
+            })
+            mlflow_active = True
+            logger.info("  MLflow tracking enabled")
+        except Exception as e:
+            logger.warning(f"  MLflow init failed (training will continue without tracking): {e}")
 
     try:
         # --- DataModule ---

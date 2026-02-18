@@ -47,6 +47,13 @@ def convert_to_lightning_checkpoint(model_path, model, output_dir, transform=Non
     model_state = model.state_dict()
     model_keys = set(model_state.keys())
     
+    # [Robustness] LightningModule이 아직 setup되지 않아 state_dict가 비어있는 경우 내부 모델 확인
+    if not model_keys and hasattr(model, "model"):
+        logger.info("[*] LightningModule 키가 비어있음. 내부 모델 구조를 분석합니다.")
+        inner_keys = set(model.model.state_dict().keys())
+        # Anomalib LightningModule은 보통 내부 모델 키에 'model.'을 붙여 관리합니다.
+        model_keys = {f"model.{k}" for k in inner_keys}
+
     strategies = [
         ("As-is", lambda d: d),
         ("Add 'model.'", lambda d: {f"model.{k}": v for k, v in d.items()}),
@@ -57,20 +64,27 @@ def convert_to_lightning_checkpoint(model_path, model, output_dir, transform=Non
     max_matches = 0
     best_strategy = "None"
     
-    logger.info(f"[*] 매칭 전략 탐색 시작 (모델 키 총 {len(model_keys)}개)")
-    for name, func in strategies:
-        try:
-            test_dict = func(state_dict)
-            matches = len(model_keys.intersection(test_dict.keys()))
-            logger.info(f"    - 전략 '{name}': {matches}개 매칭")
-            if matches > max_matches:
-                max_matches = matches
-                best_strategy = name
-                best_matching_dict = test_dict
-        except Exception:
-            continue
-
-    logger.info(f"[*] 최종 채택 전략: {best_strategy} (매칭률: {(max_matches/len(model_keys))*100:.1f}%)")
+    num_model_keys = len(model_keys)
+    logger.info(f"[*] 매칭 전략 탐색 시작 (모델 키 총 {num_model_keys}개)")
+    
+    if num_model_keys > 0:
+        for name, func in strategies:
+            try:
+                test_dict = func(state_dict)
+                matches = len(model_keys.intersection(test_dict.keys()))
+                logger.info(f"    - 전략 '{name}': {matches}개 매칭")
+                if matches > max_matches:
+                    max_matches = matches
+                    best_strategy = name
+                    best_matching_dict = test_dict
+            except Exception:
+                continue
+        
+        match_rate = (max_matches / num_model_keys) * 100
+        logger.info(f"[*] 최종 채택 전략: {best_strategy} (매칭률: {match_rate:.1f}%)")
+    else:
+        logger.warning("[!] 모델 키를 감지하지 못했습니다. 기본 전략(As-is)을 사용합니다.")
+        best_strategy = "Default (As-is)"
 
     # 3. Strict Filtering: 모델에 존재하지 않는 불필요한 키 제거 (RuntimeError 방지)
     final_state_dict = {k: v for k, v in best_matching_dict.items() if k in model_keys}
@@ -149,10 +163,15 @@ def main():
             seed=args.seed
         )
 
-        # ================== 3. 모델 생성 ==================== #
+        # ================== 3. 모델 생성 및 수동 초기화 ==================== #
         logger.info(f"🏗️ 모델 생성 중: FastFlow ({args.backbone})")
         model = Fastflow(backbone=args.backbone, flow_steps=8)
         
+        # [Strict Fix] 엔진 구동 전 모델 레이어를 명시적으로 생성 (Key 감지용)
+        # Anomalib 1.1.3에서는 setup()을 호출해야 내부 레이어(feature_extractor 등)가 실체화됩니다.
+        datamodule.setup(stage="test")
+        model.setup()
+
         # ================== 4. 가중치 래핑 (Rigorous Fix) ==================== #
         # 엔진이 "직접" 로드하게 함으로써 프레임워크 초기화 시 발생하는 리셋 문제를 해결합니다.
         tmp_ckpt_path = None

@@ -259,9 +259,9 @@ def main():
     is_distributed = world_size > 1
 
     if is_distributed:
-        # Azure ML이 프로세스를 관리하므로 Lightning에게 단일 GPU만 지정
-        # 각 프로세스가 LOCAL_RANK에 해당하는 GPU 1개를 사용
-        use_devices = 1
+        # Azure ML이 프로세스를 관리하므로 Lightning에게 LOCAL_RANK에 해당하는 GPU 지정
+        # devices=[local_rank]로 해야 각 프로세스가 자기 GPU를 사용
+        use_devices = [local_rank]
         strategy = "ddp"
         accelerator = "gpu"
         logger.info(f"  Distributed mode: WORLD_SIZE={world_size}, LOCAL_RANK={local_rank}")
@@ -277,8 +277,9 @@ def main():
     logger.info(f"  Using: {use_devices} device(s), strategy={strategy}, accelerator={accelerator}")
 
     # effective batch size = per-GPU batch × 전체 프로세스 수
-    effective_batch = args.batch_size * (world_size if is_distributed else use_devices)
-    logger.info(f"  Effective batch size: {args.batch_size} x {world_size if is_distributed else use_devices} = {effective_batch}")
+    num_effective_devices = world_size if is_distributed else (len(use_devices) if isinstance(use_devices, list) else use_devices)
+    effective_batch = args.batch_size * num_effective_devices
+    logger.info(f"  Effective batch size: {args.batch_size} x {num_effective_devices} = {effective_batch}")
 
     # --- MLflow ---
     mlflow.start_run()
@@ -288,7 +289,7 @@ def main():
         "effective_batch_size": effective_batch,
         "lr": args.lr,
         "freeze_backbone": not args.no_freeze,
-        "num_gpus": use_devices,
+        "num_gpus": num_effective_devices,
         "strategy": strategy,
     })
 
@@ -360,7 +361,7 @@ def main():
             "best_checkpoint": best_path,
             "best_val_f1": best_score.item() if best_score else 0.0,
             "training_time_sec": elapsed,
-            "num_gpus": use_devices,
+            "num_gpus": num_effective_devices,
             "strategy": strategy,
             "epochs_completed": trainer.current_epoch,
             "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),

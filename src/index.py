@@ -168,7 +168,7 @@ def main():
             logger.info("🔍 [ST5] Evaluation 모드 시작")
             engine.test(model=model, datamodule=datamodule, ckpt_path=None)
         elif args.mode == "prediction":
-            logger.info("📡 [ST5] 전수검사 (Prediction) 모드 및 Heatmap 생성 시작")
+            logger.info("📡 [ST6] 전수검사 모드: Anomalib 1.1.3 정품 Heatmap 엔진 가동")
             from anomalib.utils.visualization import ImageVisualizer
             # Anomalib 1.1.3 시각화 도구 준비
             visualizer = ImageVisualizer(mode="full", task="classification")

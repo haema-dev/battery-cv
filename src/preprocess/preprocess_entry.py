@@ -10,6 +10,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_path", type=str, required=True, help="Input raw data folder")
     parser.add_argument("--output_path", type=str, required=True, help="Output preprocessed data folder")
+    parser.add_argument("--label_path", type=str, default=None, help="JSON label folder for crop (optional)")
     parser.add_argument("--target_size", type=int, default=256, help="Target resize dimension (height and width)")
     parser.add_argument("--force", action="store_true", help="Force re-preprocessing even if output exists")
     
@@ -27,6 +28,7 @@ def main():
     print(f"   - Input Directory:  {input_root}")
     print(f"   - Output Directory: {output_root}")
     print(f"   - Target Resolution: {args.target_size}x{args.target_size} (Letterbox)")
+    print(f"   - Label Directory:  {args.label_path or 'None (no crop)'}")
     print(f"   - CLAHE Applied:    Yes (ClipLimit: 2.0, Grid: 8x8)")
     print(f"   - Skip Existing:    {'No (Force Rerun)' if args.force else 'Yes (Idempotent mode)'}")
     print("=" * 60)
@@ -43,12 +45,31 @@ def main():
                 
     total_images = len(all_files)
     print(f"📊 Total images discovered in raw data: {total_images}")
-    
+
+    # JSON 라벨 폴더 설정 (명시적 지정 또는 data_path/labels/ 자동 탐색)
+    label_root = None
+    if args.label_path:
+        label_root = Path(args.label_path)
+    else:
+        auto_label = input_root / "labels"
+        if auto_label.is_dir():
+            label_root = auto_label
+            print(f"📋 Auto-detected label folder: {label_root}")
+
+    if label_root and label_root.is_dir():
+        label_jsons = {p.stem: p for p in label_root.rglob("*.json")}
+        print(f"📋 JSON labels found: {len(label_jsons)}")
+    else:
+        label_jsons = {}
+        if args.label_path:
+            print(f"⚠️ Label path not found: {args.label_path}")
+
     stats = {
         "processed": 0,
         "already_preprocessed": 0,
+        "cropped": 0,
         "failed": 0,
-        "categories": {} # 하위 폴더별 분포 확인용
+        "categories": {}
     }
     
     # 전처리 루프
@@ -82,8 +103,11 @@ def main():
                 stats["already_preprocessed"] += 1
                 continue
 
-            # 2. 전처리 (CLAHE + Resize)
-            processed_img = preprocess_image(img, target_size=(args.target_size, args.target_size), force=args.force)
+            # 2. 전처리 (Crop + CLAHE + Resize)
+            json_file = label_jsons.get(img_path.stem)
+            if json_file:
+                stats["cropped"] = stats.get("cropped", 0) + 1
+            processed_img = preprocess_image(img, target_size=(args.target_size, args.target_size), force=args.force, json_path=json_file)
             
             # 3. 결과 저장
             cv2.imwrite(str(save_path), processed_img)
@@ -98,6 +122,7 @@ def main():
     print("✅ Preprocessing Complete!")
     print("-" * 60)
     print(f"✨ Newly Processed:      {stats['processed']}")
+    print(f"✂️ Cropped (JSON):       {stats['cropped']}")
     print(f"⏩ Already Preprocessed: {stats['already_preprocessed']} (Smart Skip)")
     print(f"⚠️ Failed:               {stats['failed']}")
     print("-" * 60)

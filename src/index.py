@@ -124,17 +124,24 @@ def main():
         model = Fastflow(backbone=args.backbone, flow_steps=8)
         
         # [Manual Injection] 모델 수동 초기화 및 가중치 강제 주입
-        datamodule.setup(stage="test")
+        # 모델 레이어(Key)를 먼저 생성하고 가중치를 직접 꽂아 넣습니다.
         model.setup()
 
         if args.model_path and os.path.exists(args.model_path):
             load_matched_weights(args.model_path, model)
 
         # ================== 3. 엔진 설정 및 실행 ==================== #
+        # image_AUROC가 개선되지 않으면 조기 종료 (사용자의 50 epochs 실행 효율화)
+        early_stop = EarlyStopping(monitor="image_AUROC", patience=10, mode="max", verbose=True)
         mlflow_logger = AnomalibMLFlowLogger(experiment_name="Battery_S2_Diagnostics", save_dir=str(OUTPUT_DIR))
+        
         engine = Engine(
-            max_epochs=args.epochs, devices=1, accelerator="auto",
-            logger=mlflow_logger, default_root_dir=str(OUTPUT_DIR)
+            max_epochs=args.epochs,
+            devices=1,
+            accelerator="auto",
+            logger=mlflow_logger,
+            callbacks=[early_stop],
+            default_root_dir=str(OUTPUT_DIR)
         )
 
         if args.mode == "training":

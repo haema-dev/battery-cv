@@ -197,12 +197,14 @@ def main():
                     label = bool(labels[i])
                     
                     # 히트맵 이미지 생성 (RGB numpy array 반환)
-                    # [수정] 메서드명 대신 객체 직접 호출 (__call__) 방식으로 더 유연하게 대응
+                    # [수정] Anomalib 1.1.3 정석: 'outputs' 딕셔너리에 담아서 전달
                     res_image = visualizer(
-                        image=images[i],
-                        anomaly_map=anomaly_maps[i],
-                        score=score,
-                        label=label
+                        outputs={
+                            "image": images[i],
+                            "anomaly_maps": anomaly_maps[i],
+                            "pred_scores": score,
+                            "pred_labels": label
+                        }
                     )
                     
                     # 파일 저장 로직 (BGR 변환 후 OpenCV 사용)

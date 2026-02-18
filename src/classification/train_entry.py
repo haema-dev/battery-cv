@@ -244,6 +244,12 @@ def main():
     logger.info(f"  CSV: {csv_path}")
     logger.info(f"  Image dir: {img_dir}")
 
+    # --- Azure ML 분산 환경변수 정리 (Lightning이 DDP를 직접 관리) ---
+    for env_key in ["WORLD_SIZE", "RANK", "LOCAL_RANK", "MASTER_ADDR", "MASTER_PORT"]:
+        if env_key in os.environ:
+            logger.info(f"  Removing Azure ML env: {env_key}={os.environ[env_key]}")
+            del os.environ[env_key]
+
     # --- GPU 감지 ---
     num_gpus = torch.cuda.device_count()
     logger.info(f"  Available GPUs: {num_gpus}")

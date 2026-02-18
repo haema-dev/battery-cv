@@ -20,6 +20,8 @@ from pathlib import Path
 from torchvision.transforms.v2 import Compose, Normalize, Resize, ToImage, ToDtype
 from lightning.pytorch.callbacks import EarlyStopping
 import lightning
+from anomalib.data import ImageItem
+from anomalib.visualization.image.item_visualizer import visualize_image_item
 
 def set_seed(seed):
     random.seed(seed)

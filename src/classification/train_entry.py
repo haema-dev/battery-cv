@@ -259,12 +259,20 @@ def main():
     is_distributed = world_size > 1
 
     if is_distributed:
-        # Azure ML이 프로세스를 관리하므로 Lightning에게 LOCAL_RANK에 해당하는 GPU 지정
-        # devices=[local_rank]로 해야 각 프로세스가 자기 GPU를 사용
-        use_devices = [local_rank]
+        # Azure ML이 프로세스를 관리하므로 CUDA_VISIBLE_DEVICES로 GPU를 제한
+        # Lightning DDP는 LOCAL_RANK 환경변수로 parallel_devices를 인덱싱하므로
+        # devices=[local_rank] 방식은 IndexError 발생. 대신:
+        # 1) CUDA_VISIBLE_DEVICES=local_rank → 프로세스가 GPU 1개만 봄
+        # 2) LOCAL_RANK=0 → Lightning이 parallel_devices[0] 사용
+        # 3) devices=1, strategy="ddp" → 정상 DDP 초기화
+        os.environ["CUDA_VISIBLE_DEVICES"] = str(local_rank)
+        os.environ["LOCAL_RANK"] = "0"
+        os.environ["RANK"] = str(local_rank)
+        use_devices = 1
         strategy = "ddp"
         accelerator = "gpu"
-        logger.info(f"  Distributed mode: WORLD_SIZE={world_size}, LOCAL_RANK={local_rank}")
+        logger.info(f"  Distributed mode: WORLD_SIZE={world_size}, LOCAL_RANK(original)={local_rank}")
+        logger.info(f"  CUDA_VISIBLE_DEVICES={local_rank}, overriding LOCAL_RANK to 0")
     elif num_gpus > 0:
         use_devices = min(args.devices, num_gpus) if args.devices > 0 else num_gpus
         strategy = "ddp" if use_devices > 1 else "auto"

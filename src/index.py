@@ -20,8 +20,7 @@ from pathlib import Path
 from torchvision.transforms.v2 import Compose, Normalize, Resize, ToImage, ToDtype
 from lightning.pytorch.callbacks import EarlyStopping
 import lightning
-from anomalib.data import ImageItem
-from anomalib.visualization.image.item_visualizer import visualize_image_item
+
 
 def set_seed(seed):
     random.seed(seed)
@@ -198,11 +197,12 @@ def main():
                     label = bool(labels[i])
                     
                     # 히트맵 이미지 생성 (RGB numpy array 반환)
-                    res_image = visualizer.visualize(
+                    # [수정] 객체 내 메서드 visualize_image 사용
+                    res_image = visualizer.visualize_image(
                         image=images[i],
                         anomaly_map=anomaly_maps[i],
-                        score=score,
-                        label=label
+                        pred_score=score,
+                        pred_label=label
                     )
                     
                     # 파일 저장 로직 (BGR 변환 후 OpenCV 사용)

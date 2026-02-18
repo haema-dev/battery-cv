@@ -43,9 +43,7 @@ jobs:
     resources:
       instance_count: 1
       shm_size: "16g"
-    distribution:
-      type: pytorch
-      process_count_per_instance: 4
+    # Lightning이 직접 multi-GPU DDP 관리 (distribution 제거)
 
 inputs:
   blob_sas_token:

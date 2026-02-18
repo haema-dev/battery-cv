@@ -193,33 +193,40 @@ def main():
                     score = float(scores[i])
                     label = bool(labels[i])
                     
-                    # 히트맵 이미지 생성 (RGB numpy array 또는 Tensor 반환)
-                    # [수정] Anomalib 1.1.3 정석: 'outputs' 딕셔너리에 담아서 전달
-                    res_image = visualizer(
-                        outputs={
-                            "image": images[i],
-                            "anomaly_maps": anomaly_maps[i],
-                            "pred_scores": score,
-                            "pred_labels": label
-                        }
-                    )
+                    # [사용자 제안 적용] 확실하고 안정적인 OpenCV 수동 합성 로직 (유령 visualizer 제거)
+                    # 1. 이상치 맵(Anomaly Map) 처리
+                    amap = anomaly_maps[i]
+                    if hasattr(amap, "cpu"): amap = amap.cpu().numpy()
+                    amap = amap.squeeze()
                     
-                    # [FIX] 결과가 Tensor인 경우 Numpy로 변환 (OpenCV 호환성)
-                    if hasattr(res_image, "cpu"):
-                        res_image = res_image.cpu().numpy()
+                    # 2. 정규화 (0~255)
+                    am_min, am_max = amap.min(), amap.max()
+                    amap_norm = ((amap - am_min) / (am_max - am_min + 1e-8) * 255).astype(np.uint8)
                     
-                    # [FIX] CHW -> HWC 변환 (Anomalib 텐서 출력 시)
-                    if res_image.ndim == 3 and res_image.shape[0] == 3:
-                        res_image = res_image.transpose(1, 2, 0)
-                        
-                    # [FIX] 0-1 range인 경우 0-255로 변환 (uint8)
-                    if res_image.dtype != np.uint8 and res_image.max() <= 1.0:
-                        res_image = (res_image * 255).astype(np.uint8)
+                    # 3. 히트맵 컬러 적용 (JET)
+                    heatmap = cv2.applyColorMap(amap_norm, cv2.COLORMAP_JET)
                     
-                    # 파일 저장 로직 (BGR 변환 후 OpenCV 사용)
+                    # 4. 원본 이미지 처리 (Tensor -> Numpy)
+                    orig = images[i]
+                    if hasattr(orig, "cpu"): orig = orig.cpu().numpy()
+                    if orig.ndim == 3 and orig.shape[0] == 3:
+                        orig = orig.transpose(1, 2, 0) # CHW -> HWC
+                    
+                    # 원본 이미지 시각화용 복원 (0-1 -> 0-255) 후 BGR로 변환
+                    orig_vis = ((orig - orig.min()) / (orig.max() - orig.min() + 1e-8) * 255).astype(np.uint8)
+                    orig_bgr = cv2.cvtColor(orig_vis, cv2.COLOR_RGB2BGR)
+                    
+                    # 5. 합성 크기 일치 확인
+                    if orig_bgr.shape[:2] != heatmap.shape[:2]:
+                        heatmap = cv2.resize(heatmap, (orig_bgr.shape[1], orig_bgr.shape[0]))
+                    
+                    # 6. 원본 60% + 히트맵 40% 합성
+                    res_image = cv2.addWeighted(orig_bgr, 0.6, heatmap, 0.4, 0)
+                    
+                    # 7. 파일 저장 (vis_ 접미사 사용하여 저장)
                     file_name = Path(path).name
                     save_path = vis_dir / f"vis_{file_name}"
-                    cv2.imwrite(str(save_path), cv2.cvtColor(res_image, cv2.COLOR_RGB2BGR))
+                    cv2.imwrite(str(save_path), res_image)
                     
                     records.append({
                         "file_path": path,

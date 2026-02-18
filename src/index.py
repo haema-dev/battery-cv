@@ -196,7 +196,7 @@ def main():
                     score = float(scores[i])
                     label = bool(labels[i])
                     
-                    # 히트맵 이미지 생성 (RGB numpy array 반환)
+                    # 히트맵 이미지 생성 (RGB numpy array 또는 Tensor 반환)
                     # [수정] Anomalib 1.1.3 정석: 'outputs' 딕셔너리에 담아서 전달
                     res_image = visualizer(
                         outputs={
@@ -206,6 +206,18 @@ def main():
                             "pred_labels": label
                         }
                     )
+                    
+                    # [FIX] 결과가 Tensor인 경우 Numpy로 변환 (OpenCV 호환성)
+                    if hasattr(res_image, "cpu"):
+                        res_image = res_image.cpu().numpy()
+                    
+                    # [FIX] CHW -> HWC 변환 (Anomalib 텐서 출력 시)
+                    if res_image.ndim == 3 and res_image.shape[0] == 3:
+                        res_image = res_image.transpose(1, 2, 0)
+                        
+                    # [FIX] 0-1 range인 경우 0-255로 변환 (uint8)
+                    if res_image.dtype != np.uint8 and res_image.max() <= 1.0:
+                        res_image = (res_image * 255).astype(np.uint8)
                     
                     # 파일 저장 로직 (BGR 변환 후 OpenCV 사용)
                     file_name = Path(path).name

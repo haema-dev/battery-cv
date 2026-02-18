@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Version trigger for Azure ML - v5
+# Version trigger for Azure ML - v6 (Strict Compliance)
 import os
 import sys
 import torch
@@ -28,17 +28,23 @@ def set_seed(seed):
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
 
-
-def convert_to_lightning_checkpoint(model_path, model, output_dir):
+def convert_to_lightning_checkpoint(model_path, model, output_dir, transform=None):
     """
-    [Rigorous Fix] raw state_dict를 Lightning 정식 체크포인트 포맷으로 래핑합니다.
-    사용자님의 제안에 따라 메타데이터를 추가하여 엔진의 공식 로드 경로를 활성화합니다.
+    [Strict Fix] raw state_dict를 Lightning 정식 체크포인트 포맷으로 변환합니다.
+    사용자님의 제안에 따라 필수 메타데이터(transform, version, epoch 등)를 포함하여 
+    전용 래퍼 체크포인트를 생성합니다. 
+    이는 프레임워크 초기화 시 가중치가 리셋되는 현상을 물리적으로 방지합니다.
     """
     logger.info(f"[*] 가중치 규격 변환 및 래핑 시작: {model_path}")
     raw_ckpt = torch.load(model_path, map_location="cpu")
-    state_dict = raw_ckpt.get("state_dict", raw_ckpt)
     
+    # 딕셔너리 구조에서 state_dict 추출 (사용자님의 제안 반영)
+    state_dict = raw_ckpt.get("state_dict", raw_ckpt)
+    if isinstance(state_dict, dict) and "model" in state_dict:
+        state_dict = state_dict["model"]
+
     # [Smart Matcher Logic] 모델 키 구조 분석 및 보정
+    # LightningModule 내부의 실제 파라미터 이름과 체크포인트의 이름 불일치 해결
     model_keys = set(model.state_dict().keys())
     has_model_prefix = any(k.startswith("model.") for k in model_keys)
     ckpt_has_prefix = any(k.startswith("model.") for k in state_dict.keys())
@@ -55,12 +61,14 @@ def convert_to_lightning_checkpoint(model_path, model, output_dir):
     else:
         final_state_dict = state_dict
 
-    # 가짜 체크포인트 생성 (Lightning 필수 메타데이터 포함)
+    # [CRITICAL] Lightning 및 Anomalib 1.1.3 필수 메타데이터 포함
+    # 주의: transform 객체의 직렬화(Pickling)가 실패할 경우 예외 처리가 필요할 수 있습니다.
     lightning_ckpt = {
         "state_dict": final_state_dict,
         "epoch": 0,
         "global_step": 0,
         "pytorch-lightning_version": getattr(lightning, "__version__", "2.1.0"),
+        "transform": transform,  # Anomalib 1.1.3 필수 키
         "callbacks": {},
         "optimizer_states": [],
         "lr_schedulers": []
@@ -70,52 +78,43 @@ def convert_to_lightning_checkpoint(model_path, model, output_dir):
     torch.save(lightning_ckpt, wrapped_path)
     return str(wrapped_path)
 
-
 def main():
     # ================== 1. Input/Output 설정 ==================== #
     parser = argparse.ArgumentParser()    
     parser.add_argument("--data_path", type=str, required=True, help="Path to mounted data asset")
-    parser.add_argument("--model_path", type=str, default=None, help="Path to pre-trained model checkpoint (Optional for Eval Mode)")
+    parser.add_argument("--model_path", type=str, default=None, help="Path to pre-trained model checkpoint")
     parser.add_argument('--output_dir', type=str, default='./outputs')
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--backbone", type=str, default="resnet18", help="Feature extractor backbone")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     parser.add_argument("--lr", type=float, default=0.0001, help="Learning rate")
     parser.add_argument("--weight_decay", type=float, default=1e-5, help="Weight decay")
-    parser.add_argument("--mode", type=str, default="evaluation", choices=["training", "evaluation"], help="Execution mode")
+    parser.add_argument("--mode", type=str, default="evaluation", choices=["training", "evaluation"])
 
     args = parser.parse_args()
     set_seed(args.seed)
-    base_path = Path(args.data_path)
     
-    logger.info("==================================================")
-    logger.info(" STAGE 2: PM Selection - FastFlow Training/Eval")
-    logger.info(f" 마운트 루트: {base_path}")
-    if args.model_path:
-        logger.info(f" 모델 로드 경로: {args.model_path}")
-    logger.info(f" 설정: Backbone={args.backbone}, Epochs={args.epochs}")
-    logger.info("==================================================")
-
-    # 필수 폴더 존재 여부 체크
-    val_path = base_path / "validation"
-    dataset_root = base_path
-
-    # ================== 2. MLflow & Output 설정 ==================== #
     OUTPUT_DIR = Path(args.output_dir)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    logger.info(f" 사용 장치: {device}")
+    logger.info("==================================================")
+    logger.info(" STAGE 2: PM Selection - FastFlow Training/Eval")
+    logger.info(f" 데이터 경로: {args.data_path}")
+    if args.model_path:
+        logger.info(f" 모델 로드 경로: {args.model_path}")
+    logger.info(f" 설정: Backbone={args.backbone}, Mode={args.mode}")
+    logger.info("==================================================")
 
     try:
-        # ================== 3. Anomalib 데이터 구성 ==================== #
-        logger.info(f" 데이터셋 로딩 중: {dataset_root}")
+        # ================== 2. Anomalib 데이터 구성 ==================== #
+        dataset_root = Path(args.data_path)
+        val_path = dataset_root / "validation"
         
+        # 불량 카테고리 자동 감지
         abnormal_dirs = []
         if val_path.exists():
             abnormal_dirs = [f"validation/{d.name}" for d in val_path.iterdir() if d.is_dir() and d.name != "good"]
-        
-        logger.info(f" 검증용 불량 카테고리 자동 감지: {abnormal_dirs}")
+        logger.info(f"[*] 불량 카테고리 감지: {abnormal_dirs}")
 
         transform = Compose([
             Resize((256, 256)),
@@ -137,27 +136,19 @@ def main():
             seed=args.seed
         )
 
-        # ================== 4. 모델 생성 및 초기화 ==================== #
-        logger.info(f"🏗️ 모델 생성 중: FastFlow (Backbone: {args.backbone})")
+        # ================== 3. 모델 생성 ==================== #
+        logger.info(f"🏗️ 모델 생성 중: FastFlow ({args.backbone})")
+        model = Fastflow(backbone=args.backbone, flow_steps=8)
         
-        model = Fastflow(
-            backbone=args.backbone, 
-            flow_steps=8
-        )
-        
-        # [Rigorous Strategy] 가짜 체크포인트 생성 및 엔진 전달
+        # ================== 4. 가중치 래핑 (Rigorous Fix) ==================== #
+        # 엔진이 "직접" 로드하게 함으로써 프레임워크 초기화 시 발생하는 리셋 문제를 해결합니다.
         tmp_ckpt_path = None
         if args.model_path and os.path.exists(args.model_path):
-            tmp_ckpt_path = convert_to_lightning_checkpoint(args.model_path, model, OUTPUT_DIR)
+            tmp_ckpt_path = convert_to_lightning_checkpoint(args.model_path, model, OUTPUT_DIR, transform=transform)
             logger.info(f"[*] 임시 체크포인트 준비 완료: {tmp_ckpt_path}")
 
-        early_stop = EarlyStopping(
-            monitor="image_AUROC", 
-            patience=5, 
-            mode="max",
-            verbose=True
-        )
-
+        # ================== 5. 엔진 설정 및 실행 ==================== #
+        early_stop = EarlyStopping(monitor="image_AUROC", patience=5, mode="max", verbose=True)
         mlflow_logger = AnomalibMLFlowLogger(experiment_name="Battery_S1_AnomalyDetection", save_dir=str(OUTPUT_DIR))
 
         engine = Engine(
@@ -170,38 +161,28 @@ def main():
             gradient_clip_val=1.0
         )
 
-        # ================== 5. 실행 (학습 또는 평가) ==================== #
         if args.mode == "training":
-            logger.info(" [Mode: Training] 학습을 시작합니다.")
+            logger.info("[*] 학습 모드 시작")
             engine.fit(model=model, datamodule=datamodule)
-        if args.mode == "evaluation":
-            logger.info(" [Mode: Evaluation] 학습을 생략하고 평가를 수행합니다.")
-            logger.info(" Calculating final metrics and thresholds...")
-            
-            engine.test(
-                model=model, 
-                datamodule=datamodule, 
-                ckpt_path=tmp_ckpt_path
-            )
+        else:
+            logger.info("[*] 평가 모드 시작 (가중치 주입)")
+            engine.test(model=model, datamodule=datamodule, ckpt_path=tmp_ckpt_path)
         
+        # 임계값 결과 확인
         if hasattr(model, "image_threshold"):
-            try:
-                thresh = model.image_threshold.value.item() if hasattr(model.image_threshold, "value") else model.image_threshold
-                logger.info(f" Calculated Image Threshold: {thresh:.4f}")
-            except Exception as e:
-                logger.warning(f" Threshold 값을 읽어오는 데 실패했습니다: {e}")
+            thresh = model.image_threshold.value.item() if hasattr(model.image_threshold, "value") else model.image_threshold
+            logger.success(f"[*] Calculated Image Threshold: {thresh:.4f}")
 
+        # 최종 가중치 저장
         model_pt_path = OUTPUT_DIR / "model.pt"
         torch.save(model.state_dict(), model_pt_path)
-        logger.success(f" [FINISH] 모든 결과가 {OUTPUT_DIR}에 저장되었습니다.")
+        logger.success(f"[FINISH] 작업 완료. 결과 저장 위치: {OUTPUT_DIR}")
 
     except Exception as e:
-        logger.error(f" [FATAL] 실행 중 오류 발생: {e}")
+        logger.error(f"[FATAL] 오류 발생: {e}")
         import traceback
         logger.debug(traceback.format_exc())
         raise
-    finally:
-        pass
 
 if __name__ == "__main__":
     main()

@@ -258,15 +258,24 @@ def main():
     local_rank = int(os.environ.get("LOCAL_RANK", 0))
     is_distributed = world_size > 1
 
+    is_azureml = os.environ.get("AZUREML_RUN_ID") is not None
+
     if is_distributed:
         # Azure ML이 process_count_per_instance>1로 프로세스를 관리하는 경우
-        # 각 프로세스에서 strategy="auto"로 단일 GPU 학습 (DDP 없이 독립 실행)
         os.environ["CUDA_VISIBLE_DEVICES"] = str(local_rank)
         use_devices = 1
         strategy = "auto"
         accelerator = "gpu"
         logger.info(f"  Azure ML distributed: WORLD_SIZE={world_size}, LOCAL_RANK={local_rank}")
         logger.info(f"  CUDA_VISIBLE_DEVICES={local_rank}, single GPU per process (no Lightning DDP)")
+    elif is_azureml and num_gpus > 1:
+        # Azure ML 환경인데 WORLD_SIZE 미설정 (rank 0): 다른 프로세스가 나머지 GPU 사용 중
+        # Lightning DDP 사용하지 않고 GPU 0만 사용
+        os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+        use_devices = 1
+        strategy = "auto"
+        accelerator = "gpu"
+        logger.info(f"  Azure ML (rank 0): forcing single GPU, CUDA_VISIBLE_DEVICES=0")
     elif num_gpus > 0:
         use_devices = min(args.devices, num_gpus) if args.devices > 0 else num_gpus
         strategy = "ddp" if use_devices > 1 else "auto"

@@ -96,6 +96,7 @@ def init_sam(model_type="vit_b", device="cuda"):
 
 def segment_sam_point(predictor, img_rgb):
     """SAM center point 프롬프트"""
+    img_rgb = np.ascontiguousarray(img_rgb, dtype=np.uint8)
     predictor.set_image(img_rgb)
     h, w = img_rgb.shape[:2]
     input_point = np.array([[w // 2, h // 2]])
@@ -109,6 +110,7 @@ def segment_sam_point(predictor, img_rgb):
 
 def segment_sam_box(predictor, img_rgb):
     """SAM bbox 프롬프트 (이미지 크기 기반 추정)"""
+    img_rgb = np.ascontiguousarray(img_rgb, dtype=np.uint8)
     predictor.set_image(img_rgb)
     h, w = img_rgb.shape[:2]
     # 배터리가 이미지 중앙에 위치한다고 가정한 bbox

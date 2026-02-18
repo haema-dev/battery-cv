@@ -30,45 +30,58 @@ def set_seed(seed):
 
 def convert_to_lightning_checkpoint(model_path, model, output_dir, transform=None):
     """
-    [Strict Fix] raw state_dict를 Lightning 정식 체크포인트 포맷으로 변환합니다.
-    사용자님의 제안에 따라 필수 메타데이터(transform, version, epoch 등)를 포함하여 
-    전용 래퍼 체크포인트를 생성합니다. 
-    이는 프레임워크 초기화 시 가중치가 리셋되는 현상을 물리적으로 방지합니다.
+    [Rigorous Final Fix] raw state_dict를 Anomalib/Lightning 정식 체크포인트로 변환합니다.
+    - BestFit Matcher: 모델의 실제 요구사항에 맞춰 'model.' 접두어를 지능적으로 가공합니다.
+    - Strict Filtering: 모델에 없는 키(예: 구버전 post_processor 등)를 제거하여 엔진의 strict 로드를 통과시킵니다.
     """
     logger.info(f"[*] 가중치 규격 변환 및 래핑 시작: {model_path}")
     raw_ckpt = torch.load(model_path, map_location="cpu")
     
-    # 딕셔너리 구조에서 state_dict 추출 (사용자님의 제안 반영)
-    state_dict = raw_ckpt.get("state_dict", raw_ckpt)
-    if isinstance(state_dict, dict) and "model" in state_dict:
-        state_dict = state_dict["model"]
-
-    # [Smart Matcher Logic] 모델 키 구조 분석 및 보정
-    # LightningModule 내부의 실제 파라미터 이름과 체크포인트의 이름 불일치 해결
-    model_keys = set(model.state_dict().keys())
-    has_model_prefix = any(k.startswith("model.") for k in model_keys)
-    ckpt_has_prefix = any(k.startswith("model.") for k in state_dict.keys())
-    
-    final_state_dict = {}
-    if has_model_prefix and not ckpt_has_prefix:
-        logger.info("[*] 규격 조정: 가중치 키에 'model.' 접두어를 추가합니다.")
-        for k, v in state_dict.items():
-            final_state_dict[f"model.{k}"] = v
-    elif not has_model_prefix and ckpt_has_prefix:
-        logger.info("[*] 규격 조정: 가중치 키에서 'model.' 접두어를 제거합니다.")
-        for k, v in state_dict.items():
-            final_state_dict[k.replace("model.", "")] = v
+    # 1. 여러 포맷(Anomalib/Lightning/Raw)에서 state_dict 추출
+    if isinstance(raw_ckpt, dict):
+        state_dict = raw_ckpt.get("state_dict", raw_ckpt.get("model", raw_ckpt))
     else:
-        final_state_dict = state_dict
+        state_dict = raw_ckpt
 
-    # [CRITICAL] Lightning 및 Anomalib 1.1.3 필수 메타데이터 포함
-    # 주의: transform 객체의 직렬화(Pickling)가 실패할 경우 예외 처리가 필요할 수 있습니다.
+    # 2. BestFit Matcher: 모델의 실제 요구사항과 체크포인트 키 대조
+    model_state = model.state_dict()
+    model_keys = set(model_state.keys())
+    
+    strategies = [
+        ("As-is", lambda d: d),
+        ("Add 'model.'", lambda d: {f"model.{k}": v for k, v in d.items()}),
+        ("Remove 'model.'", lambda d: {k[6:] if k.startswith("model.") else k: v for k, v in d.items()})
+    ]
+    
+    best_matching_dict = state_dict
+    max_matches = 0
+    best_strategy = "None"
+    
+    logger.info(f"[*] 매칭 전략 탐색 시작 (모델 키 총 {len(model_keys)}개)")
+    for name, func in strategies:
+        try:
+            test_dict = func(state_dict)
+            matches = len(model_keys.intersection(test_dict.keys()))
+            logger.info(f"    - 전략 '{name}': {matches}개 매칭")
+            if matches > max_matches:
+                max_matches = matches
+                best_strategy = name
+                best_matching_dict = test_dict
+        except Exception:
+            continue
+
+    logger.info(f"[*] 최종 채택 전략: {best_strategy} (매칭률: {(max_matches/len(model_keys))*100:.1f}%)")
+
+    # 3. Strict Filtering: 모델에 존재하지 않는 불필요한 키 제거 (RuntimeError 방지)
+    final_state_dict = {k: v for k, v in best_matching_dict.items() if k in model_keys}
+    
+    # 4. 정식 규격 래핑
     lightning_ckpt = {
         "state_dict": final_state_dict,
         "epoch": 0,
         "global_step": 0,
         "pytorch-lightning_version": getattr(lightning, "__version__", "2.1.0"),
-        "transform": transform,  # Anomalib 1.1.3 필수 키
+        "transform": transform,
         "callbacks": {},
         "optimizer_states": [],
         "lr_schedulers": []

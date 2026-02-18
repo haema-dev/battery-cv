@@ -106,12 +106,37 @@ def main():
             flow_steps=8
         )
         
-        # [Stage 2 Integration] 가중치 로드 경로 설정
-        # 엔진의 공식 ckpt_path 매개변수를 사용하여 모든 초기화(setup) 완료 후 가중치를 로드합니다.
-        # 주의: manual setup() 호출은 프레임워크 생명주기를 방해할 수 있으므로 제거하였습니다.
-        ckpt_path = args.model_path if args.model_path and os.path.exists(args.model_path) else None
-        if ckpt_path:
-            logger.info(f"[*] Spec-Compliant Loading: 엔진을 통해 가중치 로드 예정 ({ckpt_path})")
+        # [Stage 2 Integration] 모델 레이어 빌드 및 가중치 수동 주입
+        # 엔진의 ckpt_path는 Lightning 정식 체크포인트를 기대하므로, 
+        # state_dict만 들어있는 파일의 경우 수동 로드 후 ckpt_path=None으로 실행해야 합니다.
+        model.setup(datamodule)
+        
+        if args.model_path and os.path.exists(args.model_path):
+            logger.info(f"[*] 가중치 수동 로드 시작: {args.model_path}")
+            ckpt = torch.load(args.model_path, map_location="cpu")
+            state_dict = ckpt.get("state_dict", ckpt)
+            
+            # [Smart Weight Matcher]
+            # 모델의 어느 계층(전체 vs 내부)에 가중치가 더 많이 매칭되는지 자동 판별합니다.
+            model_keys = set(model.state_dict().keys())
+            inner_keys = set(model.model.state_dict().keys()) if hasattr(model, "model") else set()
+            loaded_keys = set(state_dict.keys())
+            
+            match_top = len(model_keys.intersection(loaded_keys))
+            match_inner = len(inner_keys.intersection(loaded_keys))
+            
+            logger.info(f"[*] 매칭 분석: 상위 계층({match_top}개), 내부 계층({match_inner}개)")
+            
+            if match_inner > match_top and match_inner > 0:
+                logger.info("[*] 구조 감지: 내부 모델(model.model) 가중치로 인식되었습니다.")
+                model.model.load_state_dict(state_dict, strict=False)
+                match_rate = (match_inner / len(inner_keys) * 100) if len(inner_keys) > 0 else 0
+            else:
+                logger.info("[*] 구조 감지: 전체 모델(LightningModule) 가중치로 인식되었습니다.")
+                model.load_state_dict(state_dict, strict=False)
+                match_rate = (match_top / len(model_keys) * 100) if len(model_keys) > 0 else 0
+            
+            logger.success(f"[OK] 가중치 주입 완료 (최종 매칭율: {match_rate:.1f}%)")
 
         early_stop = EarlyStopping(
             monitor="image_AUROC", 
@@ -140,11 +165,11 @@ def main():
             logger.info(" [Mode: Evaluation] 학습을 생략하고 평가를 수행합니다.")
             logger.info(" Calculating final metrics and thresholds...")
             
-            # [핵심 수정] ckpt_path를 엔진에 직접 전달하여 무결성 확보
+            # [핵심 수정] ckpt_path=None으로 설정하여 이미 로드된 가중치를 사용하도록 함
             engine.test(
                 model=model, 
                 datamodule=datamodule, 
-                ckpt_path=ckpt_path
+                ckpt_path=None
             )
         
         # [수정] 임계값 접근 안전성 확보

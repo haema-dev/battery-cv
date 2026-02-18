@@ -283,17 +283,19 @@ def main():
     effective_batch = args.batch_size * num_effective_devices
     logger.info(f"  Effective batch size: {args.batch_size} x {num_effective_devices} = {effective_batch}")
 
-    # --- MLflow ---
-    mlflow.start_run()
-    mlflow.log_params({
-        "epochs": args.epochs,
-        "batch_size": args.batch_size,
-        "effective_batch_size": effective_batch,
-        "lr": args.lr,
-        "freeze_backbone": not args.no_freeze,
-        "num_gpus": num_effective_devices,
-        "strategy": strategy,
-    })
+    # --- MLflow (rank 0만 사용, DDP 자식 프로세스에서는 인증 불가) ---
+    is_rank_zero = local_rank == 0
+    if is_rank_zero:
+        mlflow.start_run()
+        mlflow.log_params({
+            "epochs": args.epochs,
+            "batch_size": args.batch_size,
+            "effective_batch_size": effective_batch,
+            "lr": args.lr,
+            "freeze_backbone": not args.no_freeze,
+            "num_gpus": num_effective_devices,
+            "strategy": strategy,
+        })
 
     try:
         # --- DataModule ---
@@ -354,10 +356,11 @@ def main():
         logger.info(f"Best val_f1: {best_score:.4f}")
 
         # --- Save final outputs ---
-        mlflow.log_metrics({
-            "best_val_f1": best_score.item() if best_score else 0.0,
-            "training_time_sec": elapsed,
-        })
+        if is_rank_zero:
+            mlflow.log_metrics({
+                "best_val_f1": best_score.item() if best_score else 0.0,
+                "training_time_sec": elapsed,
+            })
 
         info = {
             "best_checkpoint": best_path,
@@ -371,14 +374,16 @@ def main():
         with open(os.path.join(output_dir, "training_info.json"), "w") as f:
             json.dump(info, f, indent=2)
 
-        mlflow.log_artifacts(output_dir)
+        if is_rank_zero:
+            mlflow.log_artifacts(output_dir)
         logger.success("All outputs saved successfully.")
 
     except Exception as e:
         logger.error(f"Training failed: {e}")
         raise
     finally:
-        mlflow.end_run()
+        if is_rank_zero:
+            mlflow.end_run()
 
 
 if __name__ == "__main__":

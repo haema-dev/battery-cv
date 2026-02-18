@@ -17,7 +17,7 @@ from anomalib.data import Folder
 from anomalib.engine import Engine
 from anomalib.loggers import AnomalibMLFlowLogger
 from pathlib import Path
-from torchvision.transforms.v2 import Compose, Normalize, Resize
+from torchvision.transforms.v2 import Compose, Normalize, Resize, ToImage, ToDtype
 from lightning.pytorch.callbacks import EarlyStopping
 import lightning
 
@@ -144,6 +144,8 @@ def main():
         logger.info(f"[*] 불량 카테고리 감지: {abnormal_dirs}")
 
         transform = Compose([
+            ToImage(),
+            ToDtype(torch.float32, scale=True),
             Resize((256, 256)),
             Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ])

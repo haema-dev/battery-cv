@@ -197,12 +197,12 @@ def main():
                     label = bool(labels[i])
                     
                     # 히트맵 이미지 생성 (RGB numpy array 반환)
-                    # [수정] 객체 내 메서드 visualize_image 사용
-                    res_image = visualizer.visualize_image(
+                    # [수정] 메서드명 대신 객체 직접 호출 (__call__) 방식으로 더 유연하게 대응
+                    res_image = visualizer(
                         image=images[i],
                         anomaly_map=anomaly_maps[i],
-                        pred_score=score,
-                        pred_label=label
+                        score=score,
+                        label=label
                     )
                     
                     # 파일 저장 로직 (BGR 변환 후 OpenCV 사용)

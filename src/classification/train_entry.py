@@ -258,13 +258,18 @@ def main():
     is_distributed = world_size > 1
 
     if is_distributed:
-        # Azure ML이 프로세스 관리: 각 프로세스에서 devices=1, strategy="ddp"
-        # Lightning이 env vars (MASTER_ADDR, MASTER_PORT 등)를 자동 감지하여 DDP 참여
+        # Azure ML이 프로세스 관리 (process_count_per_instance=4)
+        # Lightning DDPStrategy는 parallel_devices[LOCAL_RANK]로 GPU 접근하므로,
+        # CUDA_VISIBLE_DEVICES로 자기 GPU만 보이게 하고 LOCAL_RANK=0으로 오버라이드
+        # RANK, WORLD_SIZE, MASTER_ADDR, MASTER_PORT는 유지 → DDP 그룹 정상 형성
+        logger.info(f"  Distributed: WORLD_SIZE={world_size}, RANK={os.environ.get('RANK')}, LOCAL_RANK(original)={local_rank}")
+        logger.info(f"  MASTER_ADDR={os.environ.get('MASTER_ADDR')}, MASTER_PORT={os.environ.get('MASTER_PORT')}")
+        os.environ["CUDA_VISIBLE_DEVICES"] = str(local_rank)
+        os.environ["LOCAL_RANK"] = "0"
         use_devices = 1
         strategy = "ddp"
         accelerator = "gpu"
-        logger.info(f"  Distributed: WORLD_SIZE={world_size}, RANK={os.environ.get('RANK')}, LOCAL_RANK={local_rank}")
-        logger.info(f"  MASTER_ADDR={os.environ.get('MASTER_ADDR')}, MASTER_PORT={os.environ.get('MASTER_PORT')}")
+        logger.info(f"  CUDA_VISIBLE_DEVICES={local_rank}, LOCAL_RANK overridden to 0")
     elif num_gpus > 0:
         use_devices = min(args.devices, num_gpus) if args.devices > 0 else num_gpus
         strategy = "ddp" if use_devices > 1 else "auto"

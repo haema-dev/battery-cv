@@ -21,9 +21,10 @@ inputs:
 compute: azureml:gpu-advanced
 environment: azureml:env-yolo@latest
 
+distribution:
+  type: PyTorch
+  process_count_per_instance: 4
+
 resources:
   instance_count: 1
   shm_size: "16g"
-
-# Lightning이 직접 4 GPU DDP를 관리 (process_count_per_instance=1)
-# Azure ML은 단일 프로세스만 실행, Lightning이 내부적으로 subprocess spawn

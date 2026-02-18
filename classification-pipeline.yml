@@ -40,10 +40,12 @@ jobs:
       data_path: ${{parent.jobs.preprocess.outputs.processed_data}}
     compute: azureml:gpu-advanced
     environment: azureml:env-yolo@latest
+    distribution:
+      type: PyTorch
+      process_count_per_instance: 4
     resources:
       instance_count: 1
       shm_size: "16g"
-    # Lightning이 직접 multi-GPU DDP 관리 (distribution 제거)
 
 inputs:
   blob_sas_token:

@@ -250,32 +250,21 @@ def main():
     for i in range(num_gpus):
         logger.info(f"    GPU {i}: {torch.cuda.get_device_name(i)} ({torch.cuda.get_device_properties(i).total_memory / 1e9:.1f} GB)")
 
-    # Azure ML distribution: pytorch 사용 시 환경변수로 분산 정보 전달됨
-    # - WORLD_SIZE: 전체 프로세스 수
-    # - RANK / LOCAL_RANK: 현재 프로세스의 글로벌/로컬 랭크
-    # Lightning은 이 환경변수를 자동 감지하여 DDP를 설정함
+    # Azure ML distribution: process_count_per_instance=4 설정 시
+    # Azure ML이 WORLD_SIZE, RANK, LOCAL_RANK, MASTER_ADDR, MASTER_PORT 환경변수 설정
+    # 각 프로세스가 1 GPU를 담당, strategy="ddp"로 DDP 참여
     world_size = int(os.environ.get("WORLD_SIZE", 1))
     local_rank = int(os.environ.get("LOCAL_RANK", 0))
     is_distributed = world_size > 1
 
-    is_azureml = os.environ.get("AZUREML_RUN_ID") is not None
-
     if is_distributed:
-        # Azure ML이 process_count_per_instance>1로 프로세스를 관리하는 경우
-        os.environ["CUDA_VISIBLE_DEVICES"] = str(local_rank)
+        # Azure ML이 프로세스 관리: 각 프로세스에서 devices=1, strategy="ddp"
+        # Lightning이 env vars (MASTER_ADDR, MASTER_PORT 등)를 자동 감지하여 DDP 참여
         use_devices = 1
-        strategy = "auto"
+        strategy = "ddp"
         accelerator = "gpu"
-        logger.info(f"  Azure ML distributed: WORLD_SIZE={world_size}, LOCAL_RANK={local_rank}")
-        logger.info(f"  CUDA_VISIBLE_DEVICES={local_rank}, single GPU per process (no Lightning DDP)")
-    elif is_azureml and num_gpus > 1:
-        # Azure ML 환경인데 WORLD_SIZE 미설정 (rank 0): 다른 프로세스가 나머지 GPU 사용 중
-        # Lightning DDP 사용하지 않고 GPU 0만 사용
-        os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-        use_devices = 1
-        strategy = "auto"
-        accelerator = "gpu"
-        logger.info(f"  Azure ML (rank 0): forcing single GPU, CUDA_VISIBLE_DEVICES=0")
+        logger.info(f"  Distributed: WORLD_SIZE={world_size}, RANK={os.environ.get('RANK')}, LOCAL_RANK={local_rank}")
+        logger.info(f"  MASTER_ADDR={os.environ.get('MASTER_ADDR')}, MASTER_PORT={os.environ.get('MASTER_PORT')}")
     elif num_gpus > 0:
         use_devices = min(args.devices, num_gpus) if args.devices > 0 else num_gpus
         strategy = "ddp" if use_devices > 1 else "auto"
@@ -287,13 +276,12 @@ def main():
 
     logger.info(f"  Using: {use_devices} device(s), strategy={strategy}, accelerator={accelerator}")
 
-    # effective batch size = per-GPU batch × 전체 프로세스 수
-    num_effective_devices = world_size if is_distributed else (len(use_devices) if isinstance(use_devices, list) else use_devices)
-    effective_batch = args.batch_size * num_effective_devices
-    logger.info(f"  Effective batch size: {args.batch_size} x {num_effective_devices} = {effective_batch}")
+    effective_batch = args.batch_size * world_size
+    logger.info(f"  Effective batch size: {args.batch_size} x {world_size} = {effective_batch}")
 
-    # --- MLflow (rank 0만 사용, DDP 자식 프로세스에서는 인증 불가) ---
-    is_rank_zero = local_rank == 0
+    # --- MLflow (global rank 0만 사용, DDP 다른 프로세스에서는 인증 불가) ---
+    global_rank = int(os.environ.get("RANK", 0))
+    is_rank_zero = global_rank == 0
     if is_rank_zero:
         mlflow.start_run()
         mlflow.log_params({
@@ -302,7 +290,7 @@ def main():
             "effective_batch_size": effective_batch,
             "lr": args.lr,
             "freeze_backbone": not args.no_freeze,
-            "num_gpus": num_effective_devices,
+            "num_gpus": world_size,
             "strategy": strategy,
         })
 

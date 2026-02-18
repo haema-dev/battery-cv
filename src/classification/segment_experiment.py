@@ -263,17 +263,26 @@ def main():
 
     # --- 이미지 찾기 ---
     data_path = args.data_path
-    # test_data 에셋 구조: images/ 폴더 또는 루트에 바로 있을 수 있음
+    # 디버그: 데이터 에셋 구조 출력
+    logger.info(f"data_path: {data_path}")
+    logger.info(f"data_path contents: {os.listdir(data_path)}")
+    for item in os.listdir(data_path):
+        full = os.path.join(data_path, item)
+        if os.path.isdir(full):
+            sub_items = os.listdir(full)[:10]
+            logger.info(f"  {item}/ ({len(os.listdir(full))} files): {sub_items}")
+
     img_dir = data_path
-    for sub in ["good_images", "images", "test_100/images", "test_100"]:
+    # PNG 또는 JPG 이미지 검색
+    for sub in ["originnal_image", "original_image", "good_images", "images", "test_100/images", "test_100"]:
         candidate = os.path.join(data_path, sub)
         if os.path.isdir(candidate):
-            pngs = [f for f in os.listdir(candidate) if f.endswith(".png")]
+            pngs = [f for f in os.listdir(candidate) if f.lower().endswith((".png", ".jpg", ".jpeg"))]
             if pngs:
                 img_dir = candidate
                 break
 
-    pngs = sorted([f for f in os.listdir(img_dir) if f.endswith(".png")])
+    pngs = sorted([f for f in os.listdir(img_dir) if f.lower().endswith((".png", ".jpg", ".jpeg"))])
     logger.info(f"Found {len(pngs)} images in {img_dir}")
 
     # --- JSON 라벨 찾기 (있으면 GT 비교용) ---

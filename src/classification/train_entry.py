@@ -248,7 +248,7 @@ def main():
     num_gpus = torch.cuda.device_count()
     logger.info(f"  Available GPUs: {num_gpus}")
     for i in range(num_gpus):
-        logger.info(f"    GPU {i}: {torch.cuda.get_device_name(i)} ({torch.cuda.get_device_properties(i).total_mem / 1e9:.1f} GB)")
+        logger.info(f"    GPU {i}: {torch.cuda.get_device_name(i)} ({torch.cuda.get_device_properties(i).total_memory / 1e9:.1f} GB)")
 
     # Azure ML distribution: pytorch 사용 시 환경변수로 분산 정보 전달됨
     # - WORLD_SIZE: 전체 프로세스 수
@@ -334,7 +334,7 @@ def main():
             strategy=strategy,
             callbacks=[checkpoint_cb, early_stop_cb],
             default_root_dir=output_dir,
-            precision="16-mixed" if num_gpus > 0 else 32,
+            precision="16-mixed" if num_gpus > 0 else "32-true",
             gradient_clip_val=1.0,
         )
 
@@ -368,7 +368,7 @@ def main():
         with open(os.path.join(output_dir, "training_info.json"), "w") as f:
             json.dump(info, f, indent=2)
 
-        mlflow.log_artifact(output_dir)
+        mlflow.log_artifacts(output_dir)
         logger.success("All outputs saved successfully.")
 
     except Exception as e:

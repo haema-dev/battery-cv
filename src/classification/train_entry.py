@@ -266,10 +266,13 @@ def main():
         logger.info(f"  MASTER_ADDR={os.environ.get('MASTER_ADDR')}, MASTER_PORT={os.environ.get('MASTER_PORT')}")
         os.environ["CUDA_VISIBLE_DEVICES"] = str(local_rank)
         os.environ["LOCAL_RANK"] = "0"
+        # Azure ML이 MASTER_PORT를 프로세스 관리에 사용하므로, Lightning DDP용 포트를 다른 값으로 변경
+        original_port = int(os.environ.get("MASTER_PORT", 6105))
+        os.environ["MASTER_PORT"] = str(original_port + 1000)
         use_devices = 1
         strategy = "ddp"
         accelerator = "gpu"
-        logger.info(f"  CUDA_VISIBLE_DEVICES={local_rank}, LOCAL_RANK overridden to 0")
+        logger.info(f"  CUDA_VISIBLE_DEVICES={local_rank}, LOCAL_RANK=0, MASTER_PORT={os.environ['MASTER_PORT']}")
     elif num_gpus > 0:
         use_devices = min(args.devices, num_gpus) if args.devices > 0 else num_gpus
         strategy = "ddp" if use_devices > 1 else "auto"

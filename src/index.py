@@ -86,10 +86,11 @@ def main():
     parser.add_argument("--data_path", type=str, required=True, help="Path to mounted data asset")
     parser.add_argument("--model_path", type=str, default=None, help="Path to pre-trained model checkpoint")
     parser.add_argument('--output_dir', type=str, default='./outputs')
-    parser.add_argument("--epochs", type=int, default=10) # 진단용이므로 기본 epoch 단축
+    parser.add_argument("--epochs", type=int, default=50) # 진단용 표준 epoch 설정
     parser.add_argument("--backbone", type=str, default="resnet18")
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--mode", type=str, default="evaluation", choices=["training", "evaluation"])
+    parser.add_argument("--mode", type=str, default="evaluation", choices=["training", "evaluation", "prediction"])
+    parser.add_argument("--batch_size", type=int, default=32, help="Batch size for mass inference")
 
     args = parser.parse_args()
     set_seed(args.seed)
@@ -102,9 +103,7 @@ def main():
     try:
         # ================== 2. Anomalib 데이터 및 모델 구성 ==================== #
         dataset_root = Path(args.data_path)
-        val_path = dataset_root / "validation"
-        abnormal_dirs = [f"validation/{d.name}" for d in val_path.iterdir() if d.is_dir() and d.name != "good"] if val_path.exists() else []
-
+        
         transform = Compose([
             ToImage(),
             ToDtype(torch.float32, scale=True),
@@ -112,26 +111,43 @@ def main():
             Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ])
 
-        datamodule = Folder(
-            name="battery", root=str(dataset_root),
-            normal_dir="train/good", normal_test_dir="validation/good",
-            abnormal_dir=abnormal_dirs if abnormal_dirs else None,
-            train_batch_size=32, eval_batch_size=8,
-            train_transform=transform, eval_transform=transform,
-            task="classification", seed=args.seed
-        )
+        # Prediction 모드에서는 정답 라벨 없이 모든 이미지를 훑습니다.
+        if args.mode == "prediction":
+            from anomalib.data import PredictDataset
+            # validation 폴더의 모든 이미지를 대상으로 전수 검사 실시
+            predict_dir = dataset_root / "validation"
+            datamodule = PredictDataset(path=predict_dir, transform=transform)
+            loader = torch.utils.data.DataLoader(datamodule, batch_size=args.batch_size, shuffle=False)
+            logger.info(f"📁 Prediction 대상 경로: {predict_dir}")
+        else:
+            val_path = dataset_root / "validation"
+            abnormal_dirs = [f"validation/{d.name}" for d in val_path.iterdir() if d.is_dir() and d.name != "good"] if val_path.exists() else []
+            datamodule = Folder(
+                name="battery", root=str(dataset_root),
+                normal_dir="train/good", normal_test_dir="validation/good",
+                abnormal_dir=abnormal_dirs if abnormal_dirs else None,
+                train_batch_size=args.batch_size, eval_batch_size=args.batch_size,
+                train_transform=transform, eval_transform=transform,
+                task="classification", seed=args.seed
+            )
 
         model = Fastflow(backbone=args.backbone, flow_steps=8)
-        
-        # [Manual Injection] 모델 수동 초기화 및 가중치 강제 주입
-        # 모델 레이어(Key)를 먼저 생성하고 가중치를 직접 꽂아 넣습니다.
         model.setup()
 
         if args.model_path and os.path.exists(args.model_path):
             load_matched_weights(args.model_path, model)
 
+        # [Critical Fix] Stage 2에서 검증된 최적 임계값(-0.2604) 강제 적용
+        # 모델 로드 후 임계값이 초기화되는 것을 막기 위해 명시적으로 주입합니다.
+        SAVED_THRESHOLD = -0.2604
+        if hasattr(model, "image_threshold"):
+            if hasattr(model.image_threshold, "value"):
+                model.image_threshold.value = torch.tensor(SAVED_THRESHOLD)
+            else:
+                model.image_threshold = torch.tensor(SAVED_THRESHOLD)
+            logger.info(f"[*] 임계값 복구 완료: {SAVED_THRESHOLD}")
+
         # ================== 3. 엔진 설정 및 실행 ==================== #
-        # image_AUROC가 개선되지 않으면 조기 종료 (사용자의 50 epochs 실행 효율화)
         early_stop = EarlyStopping(monitor="image_AUROC", patience=10, mode="max", verbose=True)
         mlflow_logger = AnomalibMLFlowLogger(experiment_name="Battery_S2_Diagnostics", save_dir=str(OUTPUT_DIR))
         
@@ -140,31 +156,47 @@ def main():
             devices=1,
             accelerator="auto",
             logger=mlflow_logger,
-            callbacks=[early_stop],
+            callbacks=[early_stop] if args.mode == "training" else [],
             default_root_dir=str(OUTPUT_DIR)
         )
 
         if args.mode == "training":
-            logger.info("🔥 [DIAGNOSIS] Training 모드 시작 (가중치 기반 Fine-tuning)")
+            logger.info("🔥 [ST5] Training 모드 시작")
             engine.fit(model=model, datamodule=datamodule)
-        else:
-            logger.info("🔍 [DIAGNOSIS] Evaluation 모드 시작 (수동 주입된 가중치 기반)")
-            # ckpt_path=None으로 설정하여 프레임워크의 자동 로드를 방지하고 주입된 가중치를 그대로 사용
+        elif args.mode == "evaluation":
+            logger.info("🔍 [ST5] Evaluation 모드 시작")
             engine.test(model=model, datamodule=datamodule, ckpt_path=None)
+        elif args.mode == "prediction":
+            logger.info("📡 [ST5] 전수검사 (Prediction) 모드 시작")
+            predictions = engine.predict(model=model, dataloaders=loader)
+            
+            # 결과 수집 및 CSV 저장 (Stage 6 리포팅용)
+            import pandas as pd
+            records = []
+            for batch in predictions:
+                # Anomalib 1.1.3 Predict 결과 구조에 맞춰 데이터 추출
+                paths = batch["image_path"]
+                scores = batch["pred_scores"].cpu().numpy()
+                labels = batch["pred_labels"].cpu().numpy()
+                
+                for path, score, label in zip(paths, scores, labels):
+                    records.append({
+                        "file_path": path,
+                        "file_name": Path(path).name,
+                        "parent_dir": Path(path).parent.name,
+                        "anomaly_score": float(score),
+                        "is_defect": bool(label)
+                    })
+            
+            df = pd.DataFrame(records)
+            csv_path = OUTPUT_DIR / "results.csv"
+            df.to_csv(csv_path, index=False)
+            logger.success(f"📊 전수검사 결과 저장 완료: {csv_path} ({len(df)} images)")
         
-        # 임계값 및 결과 확인
-        if hasattr(model, "image_threshold"):
-            thresh = model.image_threshold.value.item() if hasattr(model.image_threshold, "value") else model.image_threshold
-            logger.success(f"[*] Calculated Image Threshold: {thresh:.4f}")
-
-        # 최종 가중치 저장
+        # 최종 가중치 저장 및 결과 보고
         torch.save(model.state_dict(), OUTPUT_DIR / "model.pt")
         logger.success(f"[FINISH] Output saved at: {OUTPUT_DIR}")
-
-        # 최종 가중치 저장
-        model_pt_path = OUTPUT_DIR / "model.pt"
-        torch.save(model.state_dict(), model_pt_path)
-        logger.success(f"[FINISH] 작업 완료. 결과 저장 위치: {OUTPUT_DIR}")
+        logger.success(f"[FINISH] 작업 완료. Stage 5 전수검사 모듈 준비 완료.")
 
     except Exception as e:
         logger.error(f"[FATAL] 오류 발생: {e}")

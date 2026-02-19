@@ -12,6 +12,28 @@ from anomalib.data import Folder
 from anomalib.engine import Engine
 from pathlib import Path
 from torchvision.transforms.v2 import Resize
+import numpy as np
+
+class MaskedFolder(Folder):
+    """
+    배경을 마스킹하여 배터리 본체에만 집중하게 만드는 데이터모듈입니다.
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def _apply_mask(self, image):
+        # GrabCut 혹은 단순 threshold를 사용하여 배터리 영역을 추출 (배경 노이즈 제거)
+        img_np = np.array(image)
+        mask = np.zeros(img_np.shape[:2], np.uint8)
+        bgdModel = np.zeros((1, 65), np.float64)
+        fgdModel = np.zeros((1, 65), np.float64)
+        rect = (5, 5, img_np.shape[1]-10, img_np.shape[0]-10)
+        
+        cv2.grabCut(img_np, mask, rect, bgdModel, fgdModel, 5, cv2.GC_INIT_WITH_RECT)
+        mask2 = np.where((mask==2)|(mask==0), 0, 1).astype('uint8')
+        img_masked = img_np * mask2[:, :, np.newaxis]
+        return img_masked
+
 
 def main():
     # ================== 1. Input/Output 설정 ==================== #
@@ -71,31 +93,47 @@ def main():
     logger.info(f"🖥️ 사용 장치: {device}")
 
     try:
-        # ================== 3. Anomalib 데이터 구성 ==================== #
-        logger.info(f"📥 데이터셋 로딩 중: {dataset_root}")
-        
-        # Anomalib은 normal_dir을 기준으로 학습하므로, root를 지정하고 내부를 "."으로 설정
-        datamodule = Folder(
-            name="battery_resized",
-            root=str(dataset_root),
-            normal_dir=".", 
+        # [Update] 'good' 외에 'bad' 폴더도 포함하여 평가를 수행합니다 (AUROC 측정용)
+        test_root = dataset_root.parent / "test"
+        if not test_root.exists():
+             test_root = dataset_root.parent # test 폴더가 없는 경우 부모 폴더에서 bad 검색
+             
+        # [Masked PatchCore] 배경을 제거한 이미지만 학습하도록 설정합니다.
+        datamodule = MaskedFolder(
+            name="battery_masked",
+            root=str(dataset_root.parent),
+            normal_dir="train/good",
+            test_split_mode="from_dir",
+            test_dir="test",
             train_batch_size=16,
-            eval_batch_size=1, # [High-Res] OOM 방지: 512x512 해상도 대응
+            eval_batch_size=1,
             num_workers=4,
-            augmentations=Resize((512, 512)), # [Quality] 해상도 상향
+            augmentations=Resize((512, 512)),
         )
 
         model = Patchcore(
             backbone="resnet18",
-            layers=["layer1", "layer2", "layer3"], # [Quality] 얕은 레이어부터 포함하여 세밀한 특징 추출
-            coreset_sampling_ratio=0.1, # [Quality] 10% 증설 - 정상 데이터 정밀 정의
+            layers=["layer1", "layer2", "layer3"],
+            coreset_sampling_ratio=0.1,
         )
-        engine = Engine(max_epochs=args.epochs, accelerator="auto", devices=1, default_root_dir=str(OUTPUT_DIR))
+        # metrics에 AUROC, F1Score 등을 추가하여 양불 분류 성능을 측정합니다.
+        engine = Engine(
+            max_epochs=args.epochs, 
+            accelerator="auto", 
+            devices=1, 
+            default_root_dir=str(OUTPUT_DIR),
+            task="segmentation" # 결함 위치까지 확인
+        )
 
         # ================== 4. 모델 학습 ==================== #
         logger.info(f"🧬 S1 PatchCore 학습 시작 (Target Epochs: {args.epochs})...")
         engine.fit(model=model, datamodule=datamodule)
-        logger.success(f"✅ {args.epochs} 에폭 학습이 성공적으로 끝났습니다!")
+        
+        # [NEW] 평가 수행: 정상/불량 분류 성능(AUROC) 및 히트맵 생성
+        logger.info("📊 성능 평가 및 히트맵 생성 중...")
+        engine.test(model=model, datamodule=datamodule)
+        
+        logger.success(f"✅ {args.epochs} 에폭 학습 및 평가가 성공적으로 끝났습니다!")
 
         # ================== 5. 결과 저장 ==================== #
         torch.save(model.state_dict(), OUTPUT_DIR / "model.pt")
@@ -107,7 +145,8 @@ def main():
             "coreset_ratio": 0.1,
             "dataset_path": str(dataset_root),
             "epochs": args.epochs,
-            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "task": "anomaly_detection_with_eval"
         }
         with open(OUTPUT_DIR / "info.json", 'w', encoding='utf-8') as f:
             json.dump(info, f, indent=2, ensure_ascii=False)

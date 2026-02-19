@@ -192,9 +192,11 @@ def main():
         )
 
         # --- DDP Race Condition 방지: versioned_dir 생성 시 FileExistsError 회피 ---
-        # Anomalib의 create_versioned_dir가 mkdir(exist_ok=False)를 사용하여
-        # DDP 멀티프로세스 환경에서 동시에 같은 디렉토리를 만들려고 하면 충돌남
+        # Anomalib Engine이 `from anomalib.utils.path import create_versioned_dir`로
+        # 직접 import하므로, 모듈 패치뿐 아니라 engine 모듈의 참조도 함께 패치해야 함
         import anomalib.utils.path as _aml_path
+        import anomalib.engine.engine as _aml_engine
+
         _orig_create_versioned_dir = _aml_path.create_versioned_dir
 
         def _safe_create_versioned_dir(root_dir):
@@ -202,7 +204,6 @@ def main():
             try:
                 return _orig_create_versioned_dir(root_dir)
             except FileExistsError:
-                # 다른 프로세스가 이미 생성함 — 가장 최신 versioned dir 반환
                 root_dir = Path(root_dir)
                 versions = sorted(
                     [d for d in root_dir.iterdir() if d.is_dir() and d.name.startswith("v")],
@@ -211,12 +212,14 @@ def main():
                 if versions:
                     logger.info(f"  DDP: 다른 프로세스가 이미 생성한 디렉토리 사용: {versions[-1]}")
                     return versions[-1]
-                # 최후의 수단: exist_ok=True로 직접 생성
                 fallback = root_dir / "v1"
                 fallback.mkdir(parents=True, exist_ok=True)
                 return fallback
 
+        # 두 군데 모두 패치 (모듈 레벨 + engine의 직접 참조)
         _aml_path.create_versioned_dir = _safe_create_versioned_dir
+        if hasattr(_aml_engine, 'create_versioned_dir'):
+            _aml_engine.create_versioned_dir = _safe_create_versioned_dir
 
         # --- 학습 ---
         t0 = time.time()
@@ -225,6 +228,8 @@ def main():
 
         # 원복
         _aml_path.create_versioned_dir = _orig_create_versioned_dir
+        if hasattr(_aml_engine, 'create_versioned_dir'):
+            _aml_engine.create_versioned_dir = _orig_create_versioned_dir
         elapsed = time.time() - t0
 
         # --- Threshold 확정 + 메트릭 ---

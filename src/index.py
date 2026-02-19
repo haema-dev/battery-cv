@@ -79,16 +79,16 @@ def main():
             name="battery_resized",
             root=str(dataset_root),
             normal_dir=".", 
-            train_batch_size=32,
-            eval_batch_size=4, # [Fix] OOM 방지: 평가 시 거리 행렬 크기 축소
+            train_batch_size=16,
+            eval_batch_size=1, # [High-Res] OOM 방지: 512x512 해상도 대응
             num_workers=4,
-            augmentations=Resize((256, 256)),
+            augmentations=Resize((512, 512)), # [Quality] 해상도 상향
         )
 
         model = Patchcore(
             backbone="resnet18",
-            layers=["layer2", "layer3"],
-            coreset_sampling_ratio=0.01, # [Fix] 1% - T4(16GB) 메모리 안전 수치
+            layers=["layer1", "layer2", "layer3"], # [Quality] 얕은 레이어부터 포함하여 세밀한 특징 추출
+            coreset_sampling_ratio=0.1, # [Quality] 10% 증설 - 정상 데이터 정밀 정의
         )
         engine = Engine(max_epochs=args.epochs, accelerator="auto", devices=1, default_root_dir=str(OUTPUT_DIR))
 
@@ -102,7 +102,9 @@ def main():
         info = {
             "model": "patchcore",
             "backbone": "resnet18",
-            "layers": ["layer2", "layer3"],
+            "layers": ["layer1", "layer2", "layer3"],
+            "resolution": 512,
+            "coreset_ratio": 0.1,
             "dataset_path": str(dataset_root),
             "epochs": args.epochs,
             "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")

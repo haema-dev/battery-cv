@@ -191,10 +191,40 @@ def main():
             logger=mlflow_logger,
         )
 
+        # --- DDP Race Condition 방지: versioned_dir 생성 시 FileExistsError 회피 ---
+        # Anomalib의 create_versioned_dir가 mkdir(exist_ok=False)를 사용하여
+        # DDP 멀티프로세스 환경에서 동시에 같은 디렉토리를 만들려고 하면 충돌남
+        import anomalib.utils.path as _aml_path
+        _orig_create_versioned_dir = _aml_path.create_versioned_dir
+
+        def _safe_create_versioned_dir(root_dir):
+            """DDP-safe wrapper: mkdir에서 FileExistsError 발생 시 무시"""
+            try:
+                return _orig_create_versioned_dir(root_dir)
+            except FileExistsError:
+                # 다른 프로세스가 이미 생성함 — 가장 최신 versioned dir 반환
+                root_dir = Path(root_dir)
+                versions = sorted(
+                    [d for d in root_dir.iterdir() if d.is_dir() and d.name.startswith("v")],
+                    key=lambda d: int(d.name[1:]) if d.name[1:].isdigit() else 0
+                )
+                if versions:
+                    logger.info(f"  DDP: 다른 프로세스가 이미 생성한 디렉토리 사용: {versions[-1]}")
+                    return versions[-1]
+                # 최후의 수단: exist_ok=True로 직접 생성
+                fallback = root_dir / "v1"
+                fallback.mkdir(parents=True, exist_ok=True)
+                return fallback
+
+        _aml_path.create_versioned_dir = _safe_create_versioned_dir
+
         # --- 학습 ---
         t0 = time.time()
         logger.info("Training started...")
         engine.fit(model=model, datamodule=datamodule)
+
+        # 원복
+        _aml_path.create_versioned_dir = _orig_create_versioned_dir
         elapsed = time.time() - t0
 
         # --- Threshold 확정 + 메트릭 ---

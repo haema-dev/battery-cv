@@ -8,6 +8,9 @@ import numpy as np
 import torch
 import cv2
 import mlflow
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 from pathlib import Path
 from loguru import logger
 
@@ -282,6 +285,12 @@ def main():
                 )
 
             import pandas as pd
+            from sklearn.metrics import (
+                f1_score, precision_score, recall_score, accuracy_score,
+                roc_auc_score, confusion_matrix, ConfusionMatrixDisplay,
+                classification_report,
+            )
+
             records = []
             vis_dir = OUTPUT_DIR / "visualizations"
             vis_dir.mkdir(parents=True, exist_ok=True)
@@ -290,12 +299,15 @@ def main():
                 paths, images, amaps, scores, labels = parse_batch(batch)
 
                 for i in range(len(paths)):
-                    path  = paths[i]
-                    score = float(scores[i]) if i < len(scores) else 0.0
-                    label = bool(labels[i])  if i < len(labels) else False
+                    path       = paths[i]
+                    score      = float(scores[i]) if i < len(scores) else 0.0
+                    pred_label = bool(labels[i])  if i < len(labels) else False
+                    parent_dir = Path(path).parent.name
+                    # 폴더명으로 정답 라벨 추정: good → 0(정상), 그 외 → 1(불량)
+                    gt_label   = 0 if parent_dir == "good" else 1
 
                     if amaps is not None and images is not None:
-                        blended = blend_heatmap(images[i], amaps[i])
+                        blended   = blend_heatmap(images[i], amaps[i])
                         file_name = Path(path).name
                         save_path = vis_dir / f"vis_{file_name}"
                         cv2.imwrite(str(save_path), blended)
@@ -307,25 +319,109 @@ def main():
                     records.append({
                         "file_path":     path,
                         "file_name":     file_name,
-                        "parent_dir":    Path(path).parent.name,
+                        "parent_dir":    parent_dir,
+                        "gt_label":      gt_label,
                         "anomaly_score": score,
-                        "is_defect":     label,
+                        "is_defect":     pred_label,
                         "vis_path":      vis_path_str,
                     })
 
-            if records:
-                df = pd.DataFrame(records)
+            if not records:
+                logger.warning("예측 결과가 없습니다. 데이터 경로와 모델을 확인하세요.")
+            else:
+                df       = pd.DataFrame(records)
                 csv_path = OUTPUT_DIR / "results.csv"
                 df.to_csv(csv_path, index=False)
+
                 total   = len(df)
                 defects = int(df["is_defect"].sum())
                 logger.success(
                     f"전수검사 완료: {total}장 | 불량 {defects}장 ({defects/total*100:.1f}%) | "
                     f"양품 {total-defects}장"
                 )
+
+                y_true  = df["gt_label"].values
+                y_pred  = df["is_defect"].astype(int).values
+                y_score = df["anomaly_score"].values
+                has_gt  = len(np.unique(y_true)) > 1  # 양/불량 모두 존재할 때만 지표 유효
+
+                # ── 분류 지표 ──────────────────────────
+                metrics_log = {}
+                if has_gt:
+                    acc  = accuracy_score(y_true, y_pred)
+                    prec = precision_score(y_true, y_pred, zero_division=0)
+                    rec  = recall_score(y_true, y_pred, zero_division=0)
+                    f1   = f1_score(y_true, y_pred, zero_division=0)
+                    try:
+                        auroc = roc_auc_score(y_true, y_score)
+                    except Exception:
+                        auroc = float("nan")
+
+                    metrics_log = {
+                        "accuracy": acc, "precision": prec,
+                        "recall": rec,   "f1": f1, "auroc": auroc,
+                    }
+                    logger.success(
+                        f"[METRICS] Accuracy={acc:.4f} | Precision={prec:.4f} | "
+                        f"Recall={rec:.4f} | F1={f1:.4f} | AUROC={auroc:.4f}"
+                    )
+
+                    # Classification report txt
+                    report     = classification_report(y_true, y_pred, target_names=["Normal", "Defect"])
+                    report_path = OUTPUT_DIR / "classification_report.txt"
+                    report_path.write_text(report, encoding="utf-8")
+                    logger.info(f"\n{report}")
+
+                    # Confusion matrix PNG
+                    cm   = confusion_matrix(y_true, y_pred)
+                    fig, ax = plt.subplots(figsize=(6, 5))
+                    disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=["Normal", "Defect"])
+                    disp.plot(ax=ax, colorbar=False, cmap="Blues")
+                    ax.set_title("Confusion Matrix")
+                    plt.tight_layout()
+                    cm_path = OUTPUT_DIR / "confusion_matrix.png"
+                    plt.savefig(cm_path, dpi=150)
+                    plt.close()
+                    logger.success(f"Confusion Matrix 저장: {cm_path}")
+                else:
+                    logger.warning("gt_label 단일 클래스 → F1/AUROC 계산 생략")
+
+                # ── Score Distribution PNG ──────────────
+                fig, ax = plt.subplots(figsize=(9, 5))
+                if has_gt:
+                    good_sc = df.loc[df["gt_label"] == 0, "anomaly_score"]
+                    bad_sc  = df.loc[df["gt_label"] == 1, "anomaly_score"]
+                    ax.hist(good_sc, bins=40, alpha=0.7,
+                            label=f"Normal (n={len(good_sc)})",  color="steelblue")
+                    ax.hist(bad_sc,  bins=40, alpha=0.7,
+                            label=f"Defect (n={len(bad_sc)})",   color="tomato")
+                    ax.legend()
+                else:
+                    ax.hist(y_score, bins=40, alpha=0.8,
+                            label=f"All (n={total})", color="steelblue")
+                    ax.legend()
+                ax.set_xlabel("Anomaly Score")
+                ax.set_ylabel("Count")
+                ax.set_title("Anomaly Score Distribution")
+                plt.tight_layout()
+                dist_path = OUTPUT_DIR / "score_distribution.png"
+                plt.savefig(dist_path, dpi=150)
+                plt.close()
+                logger.success(f"Score Distribution 저장: {dist_path}")
+
+                # ── MLFlow 아티팩트 로그 ────────────────
+                try:
+                    if metrics_log:
+                        mlflow.log_metrics({k: float(v) for k, v in metrics_log.items()})
+                    mlflow.log_artifact(str(csv_path))
+                    mlflow.log_artifact(str(dist_path))
+                    if has_gt:
+                        mlflow.log_artifact(str(cm_path))
+                        mlflow.log_artifact(str(report_path))
+                except Exception as mlf_e:
+                    logger.warning(f"MLFlow 로그 실패 (무시): {mlf_e}")
+
                 logger.success(f"CSV: {csv_path} | 히트맵: {vis_dir}")
-            else:
-                logger.warning("예측 결과가 없습니다. 데이터 경로와 모델을 확인하세요.")
 
         # ── 모델 가중치 저장 ────────────────────────
         model_save_path = OUTPUT_DIR / "model.pt"

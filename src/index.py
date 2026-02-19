@@ -104,10 +104,10 @@ def main():
             normal_test_dir="test/good", 
             abnormal_dir="test/bad",    
             test_split_mode="from_dir",
-            train_batch_size=4, # [Stability] WideResNet50 + 512x512 메모리 최적화
+            train_batch_size=4, 
             eval_batch_size=1,
             num_workers=4,
-            transform=transforms,
+            augmentations=transforms,
         )
 
         # [Backbone Upgrade] ResNet18 -> WideResNet50

@@ -115,6 +115,8 @@ def main():
     parser.add_argument("--seed",         type=int,   default=42)
     parser.add_argument("--precision",    type=str,   default="16-mixed",
                         help="T4 GPU FP16 혼합 정밀도 – 속도 2x, 메모리↓")
+    parser.add_argument("--threshold",    type=float, default=None,
+                        help="예측 임계값 수동 지정 (미지정 시 모델 저장값 사용)")
 
     args = parser.parse_args()
     set_seed(args.seed)
@@ -221,6 +223,11 @@ def main():
                 state_dict = raw.get("state_dict", raw) if isinstance(raw, dict) else raw
                 missing, unexpected = model.load_state_dict(state_dict, strict=False)
                 logger.info(f"가중치 로드 완료 (missing={len(missing)}, unexpected={len(unexpected)})")
+                try:
+                    thresh_val = model.image_threshold.value.item()
+                    logger.info(f"로드된 이미지 임계값: {thresh_val:.6f}")
+                except Exception:
+                    logger.warning("image_threshold 확인 불가 (--threshold로 수동 지정 권장)")
 
         # ── 콜백 구성 ────────────────────────────────
         callbacks = []
@@ -291,6 +298,19 @@ def main():
                 classification_report,
             )
 
+            # ── 판정 임계값 결정 ─────────────────────────
+            # 우선순위: --threshold 인수 > 모델 저장값 > fallback(0.5)
+            if args.threshold is not None:
+                decision_threshold = args.threshold
+                logger.info(f"수동 임계값 사용: {decision_threshold:.6f}")
+            else:
+                try:
+                    decision_threshold = model.image_threshold.value.item()
+                    logger.info(f"모델 임계값 사용: {decision_threshold:.6f}")
+                except Exception:
+                    decision_threshold = None   # 배치별 pred_label 우선, 없으면 0.5
+                    logger.warning("임계값 로드 실패 – pred_label 또는 0.5 fallback 사용")
+
             records = []
             vis_dir = OUTPUT_DIR / "visualizations"
             vis_dir.mkdir(parents=True, exist_ok=True)
@@ -299,9 +319,16 @@ def main():
                 paths, images, amaps, scores, labels = parse_batch(batch)
 
                 for i in range(len(paths)):
-                    path       = paths[i]
-                    score      = float(scores[i]) if i < len(scores) else 0.0
-                    pred_label = bool(labels[i])  if i < len(labels) else False
+                    path  = paths[i]
+                    score = float(scores[i]) if i < len(scores) else 0.0
+
+                    # pred_label 우선, 없으면 임계값으로 직접 판정
+                    if i < len(labels):
+                        pred_label = bool(labels[i])
+                    else:
+                        thr = decision_threshold if decision_threshold is not None else 0.5
+                        pred_label = score > thr
+
                     parent_dir = Path(path).parent.name
                     # 폴더명으로 정답 라벨 추정: good → 0(정상), 그 외 → 1(불량)
                     gt_label   = 0 if parent_dir == "good" else 1

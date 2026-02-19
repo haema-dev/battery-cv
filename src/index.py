@@ -124,47 +124,63 @@ def detect_backbone(state_dict: dict):
 
 
 def detect_flow_steps(state_dict: dict):
-    """state_dict 키 패턴(nf_flows.N.)에서 flow_steps 수 자동 감지."""
+    """state_dict 키 패턴에서 flow_steps 수 자동 감지.
+
+    anomalib 1.x / 2.x 공통 패턴: fast_flow_blocks.X.module_list.N.*
+    """
     import re
     indices = set()
     for key in state_dict:
-        m = re.search(r"nf_flows\.(\d+)\.", key)
+        # anomalib 1.x & 2.x: model.fast_flow_blocks.X.module_list.N.something
+        m = re.search(r"fast_flow_blocks\.\d+\.module_list\.(\d+)\.", key)
         if m:
             indices.add(int(m.group(1)))
+        # 구버전 nf_flows 패턴 (혹시 있을 경우 대비)
+        m2 = re.search(r"nf_flows\.(\d+)\.", key)
+        if m2:
+            indices.add(int(m2.group(1)))
     return max(indices) + 1 if indices else None
 
 
 class FastflowCompat(Fastflow):
     """anomalib 1.x / 2.x 체크포인트 호환 래퍼.
 
-    post_processor 등 버전별 불일치 키를 필터링 후 strict=False 로 로드.
-    기존 Fastflow 와 모든 학습/추론 동작은 동일하며 on_load_checkpoint 만 재정의.
+    Lightning은 on_load_checkpoint 외에 strategy.load_model_state_dict를
+    통해 load_state_dict를 별도로 strict=True로 호출한다.
+    따라서 load_state_dict 자체를 재정의해야 구버전 키 오류를 막을 수 있다.
     """
 
     def on_load_checkpoint(self, checkpoint: dict) -> None:
-        # anomalib 2.x: eval_transform 복구
+        # eval_transform 복구 (anomalib 2.x 필수)
         if "transform" in checkpoint:
             try:
                 self.eval_transform = checkpoint["transform"]
             except Exception:
                 pass
+        # load_state_dict는 Lightning strategy가 별도로 호출하므로 여기서는 생략
 
-        sd = checkpoint.get("state_dict", {})
-        # anomalib 1.x 에서만 존재하는 키 제거 (2.x 와 구조 불일치)
+    def load_state_dict(self, state_dict, strict=True):
+        """post_processor 등 구버전 키 필터링 후 strict=False 로 로드.
+
+        Lightning의 strategy.load_model_state_dict가 strict=True로 호출해도
+        이 재정의가 항상 strict=False + 필터링을 적용한다.
+        """
         skip_prefixes = ("post_processor", "normalization_metrics")
         filtered = {
-            k: v for k, v in sd.items()
+            k: v for k, v in state_dict.items()
             if not any(k.startswith(p) for p in skip_prefixes)
         }
-        missing, unexpected = self.load_state_dict(filtered, strict=False)
-        loaded = len(filtered) - len(unexpected)
+        result     = super().load_state_dict(filtered, strict=False)
+        missing    = result.missing_keys
+        unexpected = result.unexpected_keys
+        loaded     = len(filtered) - len(unexpected)
         logger.info(
-            f"체크포인트 로드 완료 (strict=False): "
-            f"{loaded}/{len(filtered)} 키 적용 | "
+            f"체크포인트 로드 (strict=False): {loaded}/{len(filtered)} 키 적용 | "
             f"missing={len(missing)} unexpected={len(unexpected)}"
         )
         if unexpected:
             logger.debug(f"무시된 키 (앞 3개): {unexpected[:3]}")
+        return result
 
 
 # ────────────────────────────────────────────────

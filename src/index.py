@@ -381,7 +381,7 @@ def main():
                 "pytorch-lightning_version": L.__version__,
                 "epoch": 0,
                 "global_step": 0,
-                "loops": {},
+                "loops": None,   # None이어야 Lightning이 predict_loop 복구를 건너뜀
                 "callbacks": {},
                 "optimizer_states": [],
                 "lr_schedulers": [],

@@ -38,7 +38,7 @@ def main():
     parser.add_argument("--data_path", type=str, required=True, help="Path to mounted data asset")
     parser.add_argument("--output_dir", type=str, default="./outputs")
     parser.add_argument("--epochs", type=int, default=1, help="PatchCore는 1 epoch이면 충분")
-    parser.add_argument("--backbone", type=str, default="wide_resnet50_2")
+    parser.add_argument("--backbone", type=str, default="resnet18")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--coreset_sampling_ratio", type=float, default=0.1)
     parser.add_argument("--num_neighbors", type=int, default=9)
@@ -146,8 +146,8 @@ def main():
             normal_dir="train/good",
             normal_test_dir="validation/good" if (base_path / "validation/good").exists() else None,
             abnormal_dir=abnormal_dirs if abnormal_dirs else None,
-            train_batch_size=2,  # WideResNet50 on 16GB GPU: OOM 방지 (15.56GiB)
-            eval_batch_size=1,
+            train_batch_size=8,  # ResNet18 allows larger batch size
+            eval_batch_size=4,
             num_workers=effective_workers,
             augmentations=transform,
             seed=args.seed

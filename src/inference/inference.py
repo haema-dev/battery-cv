@@ -7,6 +7,7 @@ import numpy as np
 
 from anomalib.engine import Engine
 from anomalib.models import Fastflow
+import torch.nn as nn
 
 # [Security Fix] PyTorch 2.4+ requires explicit trust for custom code
 os.environ["TRUST_REMOTE_CODE"] = "1"
@@ -17,6 +18,28 @@ class TunableFastflow(Fastflow):
         kwargs.pop('lr', None)
         kwargs.pop('weight_decay', None)
         super().__init__(*args, **kwargs)
+
+class RawScoreCapture(nn.Module):
+    """PostProcessor wrapper that captures raw anomaly maps before normalization."""
+    def __init__(self, original_pp):
+        super().__init__()
+        self.original_pp = original_pp
+        self.raw_maps = []
+
+    def forward(self, batch):
+        if hasattr(batch, 'anomaly_map') and batch.anomaly_map is not None:
+            for i in range(len(batch.image_path)):
+                amap = batch.anomaly_map[i].detach().cpu().numpy()
+                if amap.ndim == 3:
+                    amap = amap.squeeze(0)
+                self.raw_maps.append({
+                    'path': batch.image_path[i],
+                    'anomaly_map': amap
+                })
+        return self.original_pp(batch)
+
+    def clear(self):
+        self.raw_maps = []
 
 try:
     from preprocess import preprocess_image
@@ -94,6 +117,10 @@ def run_inference(data_path, model_path, output_dir, skip_preprocess=False):
 
     print(f"🎯 Found categories: {[c.name for c in categories]}")
 
+    # Wrap PostProcessor to capture pre-normalization raw anomaly maps
+    raw_capture = RawScoreCapture(model.post_processor)
+    model.post_processor = raw_capture
+
     # 4. Process each category
     for cat_dir in categories:
         cat_name = cat_dir.name
@@ -170,6 +197,16 @@ def run_inference(data_path, model_path, output_dir, skip_preprocess=False):
                         mask_overlay[mask > 0.5] = [0, 0, 255]  # Red
                         overlay_mask = cv2.addWeighted(orig_img, 0.7, mask_overlay, 0.3, 0)
                         cv2.imwrite(str(cat_output / f"mask_{img_path.name}"), overlay_mask)
+
+        # Save pre-normalization raw anomaly maps for this category
+        if raw_capture.raw_maps:
+            raw_prenorm_dir = cat_output / "anomaly_maps_raw_prenorm"
+            raw_prenorm_dir.mkdir(parents=True, exist_ok=True)
+            for entry in raw_capture.raw_maps:
+                stem = Path(entry['path']).stem
+                np.save(str(raw_prenorm_dir / f"{stem}.npy"), entry['anomaly_map'])
+            print(f"  📊 Saved {len(raw_capture.raw_maps)} pre-normalization raw maps")
+            raw_capture.clear()
 
     print(f"\n✅ All heatmaps generated successfully!")
     print(f"📍 Location: {output_dir}")

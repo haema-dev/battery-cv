@@ -1,258 +1,336 @@
 # -*- coding: utf-8 -*-
-# Version trigger for Azure ML - v6 (Strict Compliance)
+# anomalib 2.2.0 | Python 3.11 | Azure ML GPU T4
+# FastFlow 최고 성능 구성: wide_resnet50_2 + flow_steps=16 + FP16 + augmentation
 import os
-import sys
-import torch
-import argparse
-import mlflow
-import json
-import time
-import cv2
 import random
+import argparse
 import numpy as np
+import torch
+import cv2
+import mlflow
+from pathlib import Path
 from loguru import logger
+
 from anomalib.models import Fastflow
-from torch import optim
 from anomalib.data import Folder
 from anomalib.engine import Engine
 from anomalib.loggers import AnomalibMLFlowLogger
-from pathlib import Path
-from torchvision.transforms.v2 import Compose, Normalize, Resize, ToImage, ToDtype
-from lightning.pytorch.callbacks import EarlyStopping
-import lightning
+
+from torchvision.transforms.v2 import (
+    Compose, Normalize, Resize, ToImage, ToDtype,
+    RandomHorizontalFlip, RandomVerticalFlip, RandomRotation, ColorJitter,
+)
+from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 
 
-def set_seed(seed):
+# ────────────────────────────────────────────────
+# 재현성 보장
+# ────────────────────────────────────────────────
+def set_seed(seed: int) -> None:
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
 
-def load_matched_weights(model_path, model):
-    """
-    [Definitive Fix] 가중치를 추출하고 매칭 전략에 따라 모델에 직접 주입합니다.
-    - 엔진의 ckpt_path 피드백 루프를 우회하여 확실한 주입을 보장합니다.
-    """
-    logger.info(f"[*] 가중치 수동 주입 시작: {model_path}")
-    raw_ckpt = torch.load(model_path, map_location="cpu")
-    
-    if isinstance(raw_ckpt, dict):
-        state_dict = raw_ckpt.get("state_dict", raw_ckpt.get("model", raw_ckpt))
+
+# ────────────────────────────────────────────────
+# anomalib 2.x 배치 구조 파싱 (dict / object 모두 지원)
+# ────────────────────────────────────────────────
+def parse_batch(batch):
+    """anomalib 1.x(dict) 및 2.x(ImageBatch object) 모두 호환"""
+    if isinstance(batch, dict):
+        paths       = batch.get("image_path", [])
+        images      = batch.get("image")
+        amaps       = batch.get("anomaly_map") or batch.get("anomaly_maps")
+        scores_t    = batch.get("pred_score")  or batch.get("pred_scores")
+        labels_t    = batch.get("pred_label")  or batch.get("pred_labels")
     else:
-        state_dict = raw_ckpt
+        paths    = getattr(batch, "image_path", [])
+        images   = getattr(batch, "image", None)
+        amaps    = getattr(batch, "anomaly_map", None)
+        scores_t = getattr(batch, "pred_score", None)
+        labels_t = getattr(batch, "pred_label", None)
 
-    model_state = model.state_dict()
-    model_keys = set(model_state.keys())
-    
-    strategies = [
-        ("As-is", lambda d: d),
-        ("Add 'model.'", lambda d: {f"model.{k}": v for k, v in d.items()}),
-        ("Remove 'model.'", lambda d: {k[6:] if k.startswith("model.") else k: v for k, v in d.items()})
-    ]
-    
-    best_matching_dict = state_dict
-    max_matches = 0
-    best_strategy = "None"
-    
-    for name, func in strategies:
-        try:
-            test_dict = func(state_dict)
-            matches = len(model_keys.intersection(test_dict.keys()))
-            if matches > max_matches:
-                max_matches = matches
-                best_strategy = name
-                best_matching_dict = test_dict
-        except Exception: continue
+    scores = scores_t.cpu().numpy() if scores_t is not None else np.array([])
+    labels = labels_t.cpu().numpy() if labels_t is not None else np.array([])
+    return paths, images, amaps, scores, labels
 
-    logger.info(f"[*] 매칭 전략: {best_strategy} (매칭률: {(max_matches/len(model_keys))*100:.1f}%)")
-    
-    # 모델에 존재하는 키만 필터링
-    final_state_dict = {k: v for k, v in best_matching_dict.items() if k in model_keys}
-    
-    # 직접 주입 (Strict=False로 유연하게 대응하되, 매칭률 로그로 검증)
-    model.load_state_dict(final_state_dict, strict=False)
-    
-    # 주입 상태 진단 (가중치가 모두 0은 아닌지 확인)
-    first_key = list(final_state_dict.keys())[0] if final_state_dict else None
-    if first_key:
-        weight_mean = final_state_dict[first_key].abs().mean().item()
-        logger.info(f"[*] 가중치 주입 샘플 검증 ({first_key}): Mean Abs = {weight_mean:.6f}")
-    
-    return True
 
+# ────────────────────────────────────────────────
+# 히트맵 + 원본 합성 (OpenCV)
+# ────────────────────────────────────────────────
+def blend_heatmap(image_tensor, amap_tensor, alpha: float = 0.6):
+    amap = amap_tensor.cpu().numpy() if hasattr(amap_tensor, "cpu") else amap_tensor
+    amap = amap.squeeze()
+    am_min, am_max = amap.min(), amap.max()
+    amap_norm = ((amap - am_min) / (am_max - am_min + 1e-8) * 255).astype(np.uint8)
+    heatmap = cv2.applyColorMap(amap_norm, cv2.COLORMAP_JET)
+
+    orig = image_tensor.cpu().numpy() if hasattr(image_tensor, "cpu") else image_tensor
+    if orig.ndim == 3 and orig.shape[0] == 3:
+        orig = orig.transpose(1, 2, 0)
+    orig_vis = ((orig - orig.min()) / (orig.max() - orig.min() + 1e-8) * 255).astype(np.uint8)
+    orig_bgr = cv2.cvtColor(orig_vis, cv2.COLOR_RGB2BGR)
+
+    if orig_bgr.shape[:2] != heatmap.shape[:2]:
+        heatmap = cv2.resize(heatmap, (orig_bgr.shape[1], orig_bgr.shape[0]))
+
+    return cv2.addWeighted(orig_bgr, alpha, heatmap, 1 - alpha, 0)
+
+
+# ────────────────────────────────────────────────
+# 메인
+# ────────────────────────────────────────────────
 def main():
-    # ================== 1. Input/Output 설정 ==================== #
-    parser = argparse.ArgumentParser()    
-    parser.add_argument("--data_path", type=str, required=True, help="Path to mounted data asset")
-    parser.add_argument("--model_path", type=str, default=None, help="Path to pre-trained model checkpoint")
-    parser.add_argument('--output_dir', type=str, default='./outputs')
-    parser.add_argument("--epochs", type=int, default=50) # 진단용 표준 epoch 설정
-    parser.add_argument("--backbone", type=str, default="resnet18")
-    parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--mode", type=str, default="evaluation", choices=["training", "evaluation", "prediction"])
-    parser.add_argument("--batch_size", type=int, default=32, help="Batch size for mass inference")
+    parser = argparse.ArgumentParser(description="Battery FastFlow – anomalib 2.2.0")
+
+    # 경로
+    parser.add_argument("--data_path",   type=str, required=True)
+    parser.add_argument("--model_path",  type=str, default=None)
+    parser.add_argument("--output_dir",  type=str, default="./outputs")
+
+    # 모드
+    parser.add_argument("--mode", type=str, default="training",
+                        choices=["training", "evaluation", "prediction"])
+
+    # 모델 하이퍼파라미터 (최고 성능 기본값)
+    parser.add_argument("--backbone",     type=str,   default="wide_resnet50_2",
+                        help="resnet18 | wide_resnet50_2 | efficientnet_b5 등")
+    parser.add_argument("--flow_steps",   type=int,   default=16,
+                        help="Normalizing Flow 변환 횟수. 클수록 표현력↑ (기본 16)")
+    parser.add_argument("--hidden_ratio", type=float, default=1.0)
+    parser.add_argument("--image_size",   type=int,   default=256)
+
+    # 학습 설정
+    parser.add_argument("--epochs",       type=int,   default=300,
+                        help="FastFlow은 수렴에 300-500 epoch 필요 (기본 300)")
+    parser.add_argument("--batch_size",   type=int,   default=32,
+                        help="T4 16GB + FP16: wide_resnet50_2 기준 32 안전 (~5GB)")
+    parser.add_argument("--patience",     type=int,   default=15,
+                        help="EarlyStopping patience")
+    parser.add_argument("--seed",         type=int,   default=42)
+    parser.add_argument("--precision",    type=str,   default="16-mixed",
+                        help="T4 GPU FP16 혼합 정밀도 – 속도 2x, 메모리↓")
 
     args = parser.parse_args()
     set_seed(args.seed)
-    
+
     OUTPUT_DIR = Path(args.output_dir)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    
-    logger.info(f"🚀 MODE: {args.mode.upper()} | BACKBONE: {args.backbone}")
+
+    logger.info(
+        f"[START] MODE={args.mode.upper()} | "
+        f"BACKBONE={args.backbone} | "
+        f"FLOW_STEPS={args.flow_steps} | "
+        f"IMG={args.image_size}x{args.image_size} | "
+        f"PRECISION={args.precision}"
+    )
 
     try:
-        # ================== 2. Anomalib 데이터 및 모델 구성 ==================== #
         dataset_root = Path(args.data_path)
-        
-        transform = Compose([
+        img_sz = args.image_size
+
+        # ── 전처리 변환 ──────────────────────────────
+        # anomalib 2.x: train_augmentations / val_augmentations / test_augmentations
+        eval_transform = Compose([
             ToImage(),
             ToDtype(torch.float32, scale=True),
-            Resize((256, 256)),
-            Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+            Resize((img_sz, img_sz)),
+            Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ])
 
-        # Prediction 모드에서는 정답 라벨 없이 모든 이미지를 훑습니다.
+        # 학습 시 양품(Normal) 이미지에 다양한 augmentation 적용 → 과적합 방지
+        train_transform = Compose([
+            ToImage(),
+            ToDtype(torch.float32, scale=True),
+            Resize((img_sz, img_sz)),
+            RandomHorizontalFlip(p=0.5),
+            RandomVerticalFlip(p=0.5),
+            RandomRotation(degrees=15),
+            ColorJitter(brightness=0.3, contrast=0.3, saturation=0.15, hue=0.05),
+            Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ])
+
+        # ── 불량 카테고리 자동 탐색 ──────────────────
+        val_path = dataset_root / "validation"
+        abnormal_dirs = None
+        if val_path.exists():
+            subs = [d for d in val_path.iterdir() if d.is_dir() and d.name != "good"]
+            if subs:
+                abnormal_dirs = [f"validation/{d.name}" for d in subs]
+                logger.info(f"불량 카테고리 발견: {[d.name for d in subs]}")
+
+        # ── 데이터 모듈 ──────────────────────────────
         if args.mode == "prediction":
-            from anomalib.data import PredictDataset
-            # validation 폴더의 모든 이미지를 대상으로 전수 검사 실시
-            predict_dir = dataset_root / "validation"
-            datamodule = PredictDataset(path=predict_dir, transform=transform)
-            loader = torch.utils.data.DataLoader(datamodule, batch_size=args.batch_size, shuffle=False)
-            logger.info(f"📁 Prediction 대상 경로: {predict_dir}")
+            # 전수검사: validation 폴더 전체를 라벨 없이 추론
+            try:
+                from anomalib.data import PredictDataset
+                predict_dir = val_path
+                pred_dataset = PredictDataset(path=predict_dir, transform=eval_transform)
+                loader = torch.utils.data.DataLoader(
+                    pred_dataset, batch_size=args.batch_size,
+                    shuffle=False, num_workers=4, pin_memory=True,
+                )
+                logger.info(f"PredictDataset 경로: {predict_dir} ({len(pred_dataset)} 이미지)")
+            except Exception as e:
+                logger.warning(f"PredictDataset 초기화 실패: {e} – Folder fallback 사용")
+                loader = None
         else:
-            val_path = dataset_root / "validation"
-            abnormal_dirs = [f"validation/{d.name}" for d in val_path.iterdir() if d.is_dir() and d.name != "good"] if val_path.exists() else []
             datamodule = Folder(
-                name="battery", root=str(dataset_root),
-                normal_dir="train/good", normal_test_dir="validation/good",
-                abnormal_dir=abnormal_dirs if abnormal_dirs else None,
-                train_batch_size=args.batch_size, eval_batch_size=args.batch_size,
-                train_transform=transform, eval_transform=transform,
-                task="classification", seed=args.seed
+                name="battery",
+                root=str(dataset_root),
+                normal_dir="train/good",
+                normal_test_dir="validation/good",
+                abnormal_dir=abnormal_dirs,
+                train_batch_size=args.batch_size,
+                eval_batch_size=args.batch_size,
+                # ★ anomalib 2.x API: train_transform → train_augmentations
+                train_augmentations=train_transform,
+                val_augmentations=eval_transform,
+                test_augmentations=eval_transform,
+                num_workers=4,
+                seed=args.seed,
             )
 
-        model = Fastflow(backbone=args.backbone, flow_steps=8)
-        model.setup()
+        # ── FastFlow 모델 ────────────────────────────
+        # ★ anomalib 2.x: model.setup() 불필요, engine이 자동 처리
+        model = Fastflow(
+            backbone=args.backbone,
+            pre_trained=True,
+            flow_steps=args.flow_steps,
+            conv3x3_only=False,   # wide_resnet50_2: 1x1+3x3 모두 사용
+            hidden_ratio=args.hidden_ratio,
+        )
+        logger.info(f"FastFlow 모델 생성 완료 (backbone={args.backbone}, flow_steps={args.flow_steps})")
 
+        # ── 사전학습 가중치 로드 (선택) ───────────────
         if args.model_path and os.path.exists(args.model_path):
-            load_matched_weights(args.model_path, model)
+            logger.info(f"체크포인트 로드: {args.model_path}")
+            ckpt_path = args.model_path
+        else:
+            ckpt_path = None
 
-        # [Critical Fix] Stage 2에서 검증된 최적 임계값(-0.2604) 강제 적용
-        # 모델 로드 후 임계값이 초기화되는 것을 막기 위해 명시적으로 주입합니다.
-        SAVED_THRESHOLD = -0.2604
-        if hasattr(model, "image_threshold"):
-            if hasattr(model.image_threshold, "value"):
-                model.image_threshold.value = torch.tensor(SAVED_THRESHOLD)
-            else:
-                model.image_threshold = torch.tensor(SAVED_THRESHOLD)
-            logger.info(f"[*] 임계값 복구 완료: {SAVED_THRESHOLD}")
+        # ── 콜백 구성 ────────────────────────────────
+        callbacks = []
+        if args.mode == "training":
+            callbacks.append(EarlyStopping(
+                monitor="image_AUROC",
+                patience=args.patience,
+                mode="max",
+                verbose=True,
+            ))
+            callbacks.append(ModelCheckpoint(
+                dirpath=str(OUTPUT_DIR / "checkpoints"),
+                filename="fastflow-{epoch:03d}-auroc{image_AUROC:.4f}",
+                monitor="image_AUROC",
+                mode="max",
+                save_top_k=3,
+                save_last=True,
+            ))
 
-        # ================== 3. 엔진 설정 및 실행 ==================== #
-        early_stop = EarlyStopping(monitor="image_AUROC", patience=10, mode="max", verbose=True)
-        mlflow_logger = AnomalibMLFlowLogger(experiment_name="Battery_S2_Diagnostics", save_dir=str(OUTPUT_DIR))
-        
+        # ── MLFlow 로거 ──────────────────────────────
+        mlflow_logger = AnomalibMLFlowLogger(
+            experiment_name="Battery_FastFlow_v2",
+            save_dir=str(OUTPUT_DIR),
+        )
+
+        # ── Engine ───────────────────────────────────
         engine = Engine(
             max_epochs=args.epochs,
             devices=1,
             accelerator="auto",
+            precision=args.precision,   # ★ FP16 mixed precision: T4 속도 최대 2배
             logger=mlflow_logger,
-            callbacks=[early_stop] if args.mode == "training" else [],
-            default_root_dir=str(OUTPUT_DIR)
+            callbacks=callbacks,
+            default_root_dir=str(OUTPUT_DIR),
         )
 
+        # ══════════════════════════════════════════════
+        # 모드별 실행
+        # ══════════════════════════════════════════════
+
         if args.mode == "training":
-            logger.info("🔥 [ST5] Training 모드 시작")
-            engine.fit(model=model, datamodule=datamodule)
+            logger.info("Training 시작")
+            engine.fit(model=model, datamodule=datamodule, ckpt_path=ckpt_path)
+
+            logger.info("Training 완료 후 Test 평가 실행")
+            engine.test(model=model, datamodule=datamodule)
+
         elif args.mode == "evaluation":
-            logger.info("🔍 [ST5] Evaluation 모드 시작")
-            engine.test(model=model, datamodule=datamodule, ckpt_path=None)
+            logger.info("Evaluation 시작")
+            engine.test(model=model, datamodule=datamodule, ckpt_path=ckpt_path)
+
         elif args.mode == "prediction":
-            logger.info("📡 [ST6] 전수검사 모드: Manual OpenCV Blending 엔진 가동")
-            
-            predictions = engine.predict(model=model, dataloaders=loader)
-            
-            # 결과 수집 및 CSV 저장 (Stage 6 리포팅용)
+            logger.info("전수검사(Prediction) 시작")
+
+            if loader is not None:
+                predictions = engine.predict(
+                    model=model, dataloaders=loader, ckpt_path=ckpt_path
+                )
+            else:
+                predictions = engine.predict(
+                    model=model, datamodule=datamodule, ckpt_path=ckpt_path
+                )
+
             import pandas as pd
             records = []
-            
-            # 히트맵 저장 폴더 생성
             vis_dir = OUTPUT_DIR / "visualizations"
             vis_dir.mkdir(parents=True, exist_ok=True)
-            
-            for batch in predictions:
-                # Anomalib 1.1.3 Predict 결과 구조에 맞춰 데이터 추출
-                paths = batch["image_path"]
-                images = batch["image"]
-                anomaly_maps = batch["anomaly_maps"]
-                scores = batch["pred_scores"].cpu().numpy()
-                labels = batch["pred_labels"].cpu().numpy()
-                
+
+            for batch in (predictions or []):
+                paths, images, amaps, scores, labels = parse_batch(batch)
+
                 for i in range(len(paths)):
-                    path = paths[i]
-                    score = float(scores[i])
-                    label = bool(labels[i])
-                    
-                    # [사용자 제안 적용] 확실하고 안정적인 OpenCV 수동 합성 로직 (유령 visualizer 제거)
-                    # 1. 이상치 맵(Anomaly Map) 처리
-                    amap = anomaly_maps[i]
-                    if hasattr(amap, "cpu"): amap = amap.cpu().numpy()
-                    amap = amap.squeeze()
-                    
-                    # 2. 정규화 (0~255)
-                    am_min, am_max = amap.min(), amap.max()
-                    amap_norm = ((amap - am_min) / (am_max - am_min + 1e-8) * 255).astype(np.uint8)
-                    
-                    # 3. 히트맵 컬러 적용 (JET)
-                    heatmap = cv2.applyColorMap(amap_norm, cv2.COLORMAP_JET)
-                    
-                    # 4. 원본 이미지 처리 (Tensor -> Numpy)
-                    orig = images[i]
-                    if hasattr(orig, "cpu"): orig = orig.cpu().numpy()
-                    if orig.ndim == 3 and orig.shape[0] == 3:
-                        orig = orig.transpose(1, 2, 0) # CHW -> HWC
-                    
-                    # 원본 이미지 시각화용 복원 (0-1 -> 0-255) 후 BGR로 변환
-                    orig_vis = ((orig - orig.min()) / (orig.max() - orig.min() + 1e-8) * 255).astype(np.uint8)
-                    orig_bgr = cv2.cvtColor(orig_vis, cv2.COLOR_RGB2BGR)
-                    
-                    # 5. 합성 크기 일치 확인
-                    if orig_bgr.shape[:2] != heatmap.shape[:2]:
-                        heatmap = cv2.resize(heatmap, (orig_bgr.shape[1], orig_bgr.shape[0]))
-                    
-                    # 6. 원본 60% + 히트맵 40% 합성
-                    res_image = cv2.addWeighted(orig_bgr, 0.6, heatmap, 0.4, 0)
-                    
-                    # 7. 파일 저장 (vis_ 접미사 사용하여 저장)
-                    file_name = Path(path).name
-                    save_path = vis_dir / f"vis_{file_name}"
-                    cv2.imwrite(str(save_path), res_image)
-                    
+                    path  = paths[i]
+                    score = float(scores[i]) if i < len(scores) else 0.0
+                    label = bool(labels[i])  if i < len(labels) else False
+
+                    if amaps is not None and images is not None:
+                        blended = blend_heatmap(images[i], amaps[i])
+                        file_name = Path(path).name
+                        save_path = vis_dir / f"vis_{file_name}"
+                        cv2.imwrite(str(save_path), blended)
+                        vis_path_str = str(save_path)
+                    else:
+                        file_name    = Path(path).name
+                        vis_path_str = ""
+
                     records.append({
-                        "file_path": path,
-                        "file_name": file_name,
-                        "parent_dir": Path(path).parent.name,
+                        "file_path":     path,
+                        "file_name":     file_name,
+                        "parent_dir":    Path(path).parent.name,
                         "anomaly_score": score,
-                        "is_defect": label,
-                        "vis_path": str(save_path)
+                        "is_defect":     label,
+                        "vis_path":      vis_path_str,
                     })
-            
-            df = pd.DataFrame(records)
-            csv_path = OUTPUT_DIR / "results.csv"
-            df.to_csv(csv_path, index=False)
-            logger.success(f"📊 전수검사 및 히트맵 저장 완료: {vis_dir} ({len(df)} images)")
-            logger.success(f"📊 CSV 완료: {csv_path}")
-        
-        # 최종 가중치 저장 및 결과 보고
-        torch.save(model.state_dict(), OUTPUT_DIR / "model.pt")
-        logger.success(f"[FINISH] Output saved at: {OUTPUT_DIR}")
-        logger.success(f"[FINISH] 작업 완료. Stage 5 전수검사 모듈 준비 완료.")
+
+            if records:
+                df = pd.DataFrame(records)
+                csv_path = OUTPUT_DIR / "results.csv"
+                df.to_csv(csv_path, index=False)
+                total   = len(df)
+                defects = int(df["is_defect"].sum())
+                logger.success(
+                    f"전수검사 완료: {total}장 | 불량 {defects}장 ({defects/total*100:.1f}%) | "
+                    f"양품 {total-defects}장"
+                )
+                logger.success(f"CSV: {csv_path} | 히트맵: {vis_dir}")
+            else:
+                logger.warning("예측 결과가 없습니다. 데이터 경로와 모델을 확인하세요.")
+
+        # ── 모델 가중치 저장 ────────────────────────
+        model_save_path = OUTPUT_DIR / "model.pt"
+        torch.save(model.state_dict(), model_save_path)
+        logger.success(f"[FINISH] 모델 저장: {model_save_path}")
+        logger.success(f"[FINISH] 전체 출력: {OUTPUT_DIR}")
 
     except Exception as e:
-        logger.error(f"[FATAL] 오류 발생: {e}")
+        logger.error(f"[FATAL] {e}")
         import traceback
         logger.debug(traceback.format_exc())
         raise
+
 
 if __name__ == "__main__":
     main()

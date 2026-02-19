@@ -1,10 +1,22 @@
 $schema: https://azuremlschemas.azureedge.net/latest/commandJob.schema.json
 type: command
 code: src/
+
+# ★ 최고 성능 설정: wide_resnet50_2 + flow_steps=16 + FP16
 command: >-
-  python index.py \
-    --data_path ${{inputs.data}} \
-    --output_dir ${{outputs.outputs}}
+  python index.py
+    --data_path   ${{inputs.data}}
+    --output_dir  ${{outputs.outputs}}
+    --mode        training
+    --backbone    wide_resnet50_2
+    --flow_steps  16
+    --image_size  256
+    --epochs      100
+    --batch_size  16
+    --patience    15
+    --precision   16-mixed
+    --seed        42
+
 inputs:
   data:
     type: uri_folder
@@ -19,6 +31,8 @@ outputs:
 
 compute: azureml:gpu-t4
 environment: azureml:env-yolo:21
+
 # Job 실험명과 task 명 지정. 미기재 해도 됨.
-experiment_name: Test_Github
-display_name: "Test Github"
+# experiment_name은 공백 비허용, display_name는 따옴표 필수
+experiment_name: Battery_FastFlow_v2
+display_name: "FastFlow wide_resnet50_2 flow16 FP16"

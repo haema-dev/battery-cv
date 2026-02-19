@@ -126,8 +126,11 @@ class DefectClassifier(pl.LightningModule):
         self.backbone = models.efficientnet_b0(weights=models.EfficientNet_B0_Weights.DEFAULT)
 
         if freeze_backbone:
-            for param in self.backbone.parameters():
+            for param in self.backbone.features.parameters():
                 param.requires_grad = False
+            # BN running stats도 고정하기 위해 features를 eval 모드로 설정
+            # (training_step에서 매번 재적용)
+            self.backbone.features.eval()
 
         in_features = self.backbone.classifier[1].in_features
         self.backbone.classifier[1] = nn.Sequential(
@@ -149,6 +152,10 @@ class DefectClassifier(pl.LightningModule):
         return self.backbone(x)
 
     def training_step(self, batch, batch_idx):
+        # Lightning이 매 epoch마다 model.train()을 호출하므로
+        # backbone features를 다시 eval 모드로 강제 (BN running stats 업데이트 방지)
+        if self.hparams.freeze_backbone:
+            self.backbone.features.eval()
         x, y = batch
         logits = self(x)
         loss = self.criterion(logits, y.float())

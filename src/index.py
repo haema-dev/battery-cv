@@ -89,20 +89,49 @@ def main():
             ToDtype(torch.float32, scale=True)
         ])
 
-        # 데이터 세트의 최상위 루트를 안전하게 설정합니다.
-        if dataset_root is not None and dataset_root != base_path:
-            # train/good 구조가 발견된 경우
-            data_root_dir = dataset_root.parent.parent
-        else:
-            # 못 찾았거나 flat한 경우
-            data_root_dir = base_path
+        # [Robust Detection] 데이터 구조에 관계없이 train/good, test/good, test/bad 등을 찾습니다.
+        logger.info(f"🔎 데이터 구조 탐색 시작: {base_path}")
         
+        train_good = None
+        test_good = None
+        test_bad = None
+        
+        for root, dirs, files in os.walk(base_path):
+            r = Path(root)
+            # train/good 탐색
+            if r.name == "good" and "train" in str(r.parent).lower():
+                train_good = r
+            # test/good 탐색
+            elif r.name == "good" and ("test" in str(r.parent).lower() or "val" in str(r.parent).lower()):
+                test_good = r
+            # test/bad 탐색
+            elif r.name in ["bad", "defect", "abnormal"] and ("test" in str(r.parent).lower() or "val" in str(r.parent).lower()):
+                test_bad = r
+        
+        # 만약 못 찾았다면, 최상위에서 시도
+        if not train_good:
+            # base_path가 Path 객체임을 보장
+            train_good = (base_path / "train/good") if (base_path / "train/good").exists() else (base_path / "good")
+        
+        # 최종 루트 결정 (train_good의 조부모 혹은 부모)
+        if train_good and train_good.exists() and "train" in str(train_good.parent).lower():
+            data_root_dir = train_good.parent.parent
+        elif train_good and train_good.exists():
+            data_root_dir = train_good.parent
+        else:
+            data_root_dir = base_path
+            
+        logger.info(f"📍 결정된 Root: {data_root_dir}")
+        
+        # 안전한 경로 취득 (Found 여부에 따라 분기)
+        safe_train_dir = str(train_good.relative_to(data_root_dir)) if (train_good and train_good.exists()) else "train/good"
+
         datamodule = Folder(
             name="battery_extreme",
             root=str(data_root_dir),
-            normal_dir="train/good",
-            normal_test_dir="test/good", 
-            abnormal_dir="test/bad",    
+            normal_dir=safe_train_dir,
+            normal_test_dir=str(test_good.relative_to(data_root_dir)) if (test_good and test_good.exists()) else None,
+            abnormal_dir=str(test_bad.relative_to(data_root_dir)) if (test_bad and test_bad.exists()) else None,
             test_split_mode="from_dir",
             train_batch_size=4, 
             eval_batch_size=1,

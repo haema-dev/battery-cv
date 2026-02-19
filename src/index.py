@@ -264,11 +264,17 @@ def main():
                         logger.info(f"state_dict 임계값 추출: {saved_thresh:.6f}")
                         break
                 if saved_thresh is None:
-                    logger.warning("state_dict에 image_threshold.value 없음 – fallback 사용 예정")
+                    logger.warning(
+                        "state_dict에 image_threshold.value 없음. "
+                        "이 model.pt는 학습 완료본이 아닐 수 있습니다. "
+                        "--threshold 로 임계값을 수동 지정하세요."
+                    )
 
                 # Lightning ckpt 형식으로 래핑 → engine이 setup() 후 올바르게 복구
+                # anomalib 2.x on_load_checkpoint()는 "transform" 키를 필수로 요구함
                 wrapped = {
                     "state_dict": state_dict,
+                    "transform": eval_transform,       # ← anomalib 2.x 필수 키
                     "pytorch-lightning_version": L.__version__,
                     "epoch": 0,
                     "global_step": 0,

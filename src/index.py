@@ -7,7 +7,7 @@ import json
 import time
 import cv2
 from loguru import logger
-from anomalib.models import Fastflow
+from anomalib.models import Patchcore
 from anomalib.data import Folder
 from anomalib.engine import Engine
 from pathlib import Path
@@ -24,7 +24,7 @@ def main():
     base_path = Path(args.data_path)
     
     logger.info("==================================================")
-    logger.info("🚀 S1_FastFlow_Training: [Targeted Path Mode]")
+    logger.info("🚀 S1_PatchCore_Training: [Targeted Path Mode]")
     logger.info(f"📍 마운트 루트: {base_path}")
     logger.info("==================================================")
 
@@ -80,22 +80,29 @@ def main():
             root=str(dataset_root),
             normal_dir=".", 
             train_batch_size=32,
-            eval_batch_size=8,
+            eval_batch_size=4, # [Fix] OOM 방지: 평가 시 거리 행렬 크기 축소
             num_workers=4,
             augmentations=Resize((256, 256)),
         )
 
-        model = Fastflow(backbone="resnet18", flow_steps=8, evaluator=False)
+        model = Patchcore(
+            backbone="resnet18",
+            layers=["layer2", "layer3"],
+            coreset_sampling_ratio=0.01, # [Fix] 1% - T4(16GB) 메모리 안전 수치
+        )
         engine = Engine(max_epochs=args.epochs, accelerator="auto", devices=1, default_root_dir=str(OUTPUT_DIR))
 
         # ================== 4. 모델 학습 ==================== #
-        logger.info(f"🧬 S1 모델 학습 시작 (Target Epochs: {args.epochs})...")
+        logger.info(f"🧬 S1 PatchCore 학습 시작 (Target Epochs: {args.epochs})...")
         engine.fit(model=model, datamodule=datamodule)
         logger.success(f"✅ {args.epochs} 에폭 학습이 성공적으로 끝났습니다!")
 
         # ================== 5. 결과 저장 ==================== #
         torch.save(model.state_dict(), OUTPUT_DIR / "model.pt")
         info = {
+            "model": "patchcore",
+            "backbone": "resnet18",
+            "layers": ["layer2", "layer3"],
             "dataset_path": str(dataset_root),
             "epochs": args.epochs,
             "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")

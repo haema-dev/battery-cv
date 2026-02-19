@@ -72,7 +72,7 @@ def main():
             root=dataset_root,
             normal_dir=".", 
             train_batch_size=32, # 256x256 on T4(16GB) - 충분한 여유
-            eval_batch_size=32,
+            eval_batch_size=4, # [Fix] OOM 방지: 평가 시 거리 행렬(Distance Matrix) 크기 축소
             num_workers=4,
             train_augmentations=transform,
             val_augmentations=transform,
@@ -91,7 +91,7 @@ def main():
                 backbone="resnet18",
                 pre_trained=True,
                 layers=["layer2", "layer3"],
-                coreset_sampling_ratio=0.1,  # 10% - 256x256 소형 이미지, T4(16GB) 충분
+                coreset_sampling_ratio=0.01,  # [Fix] 10% -> 1%: T4(16GB) 메모리 안전 수치로 복구
             )
 
         # ---------------------------------------------------------

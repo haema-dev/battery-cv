@@ -293,7 +293,13 @@ def main():
 
     except Exception as e:
         logger.error(f"Training failed: {e}")
-        raise
+        import traceback
+        err_path = OUTPUT_DIR / "error_trace.txt"
+        with open(err_path, "w") as f:
+            f.write(traceback.format_exc())
+            f.write(f"\nError keys: {e}")
+        logger.info(f"Saved error trace to {err_path}")
+        # raise (suppress to ensure artifact upload)
     finally:
         if mlflow_active:
             mlflow.end_run()

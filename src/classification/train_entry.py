@@ -249,10 +249,14 @@ def main():
     world_size = int(os.environ.get("WORLD_SIZE", 1))
     is_main_process = local_rank == 0
 
-    # 각 프로세스가 자기 GPU만 보이도록 설정 (LOCAL_RANK → CUDA_VISIBLE_DEVICES)
+    # 각 프로세스가 자기 GPU만 보이도록 설정
+    # CUDA_VISIBLE_DEVICES=local_rank → GPU 1개만 보임
+    # LOCAL_RANK=0 → Lightning이 parallel_devices[0] 접근 (IndexError 방지)
+    # RANK/WORLD_SIZE는 유지 → DDP init_process_group 정상 작동
     if world_size > 1:
         os.environ["CUDA_VISIBLE_DEVICES"] = str(local_rank)
-        logger.info(f"  DDP: LOCAL_RANK={local_rank}, WORLD_SIZE={world_size}, CUDA_VISIBLE_DEVICES={local_rank}")
+        os.environ["LOCAL_RANK"] = "0"
+        logger.info(f"  DDP: original_local_rank={local_rank}, WORLD_SIZE={world_size}, CUDA_VISIBLE_DEVICES={local_rank}, LOCAL_RANK→0")
     else:
         logger.info(f"  Single process mode: WORLD_SIZE={world_size}")
 

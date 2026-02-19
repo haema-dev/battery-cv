@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 배터리 불량 분류 모델 학습 (Azure ML Compute Cluster용)
-- EfficientNet-B0 backbone + BCEWithLogitsLoss (multi-label: Damaged/Pollution)
+- EfficientNet-B0 backbone + CrossEntropyLoss (multi-class: Damaged/Pollution/Both)
 - 단일 GPU / 멀티 GPU(DDP) 자동 지원
 - 전처리된 이미지 + CSV를 데이터 에셋으로 마운트받아 학습
 """
@@ -26,12 +26,14 @@ from torchvision import models, transforms
 # ============================================================
 # Dataset & DataModule
 # ============================================================
+CLASS_NAMES = ["Damaged", "Pollution", "Damaged+Pollution"]
+
+
 class DefectDataset(Dataset):
-    def __init__(self, df, img_dir, transform=None, classes=("Damaged", "Pollution")):
+    def __init__(self, df, img_dir, transform=None):
         self.df = df.reset_index(drop=True)
         self.img_dir = img_dir
         self.transform = transform
-        self.classes = classes
 
     def __len__(self):
         return len(self.df)
@@ -45,15 +47,21 @@ class DefectDataset(Dataset):
         except Exception:
             image = Image.new("RGB", (224, 224), color="black")
 
-        labels = []
+        # 멀티클래스: Damaged=0, Pollution=1, Both=2
         defect_str = str(row["defect_types"])
-        for cls in self.classes:
-            labels.append(1 if cls in defect_str else 0)
-        labels = torch.tensor(labels, dtype=torch.float32)
+        has_damaged = "Damaged" in defect_str
+        has_pollution = "Pollution" in defect_str
+        if has_damaged and has_pollution:
+            label = 2
+        elif has_pollution:
+            label = 1
+        else:
+            label = 0
+        label = torch.tensor(label, dtype=torch.long)
 
         if self.transform:
             image = self.transform(image)
-        return image, labels
+        return image, label
 
 
 class DefectDataModule(pl.LightningDataModule):
@@ -93,11 +101,24 @@ class DefectDataModule(pl.LightningDataModule):
 
         logger.info(f"Train: {len(train_df)} | Val: {len(val_df)}")
 
-        # 클래스 분포 출력
+        # 클래스 분포 출력 (멀티클래스)
         for split_name, split_df in [("Train", train_df), ("Val", val_df)]:
-            for cls in ["Damaged", "Pollution"]:
-                cnt = split_df["defect_types"].str.contains(cls).sum()
-                logger.info(f"  {split_name} - {cls}: {cnt}")
+            dt = split_df["defect_types"].fillna("")
+            has_d = dt.str.contains("Damaged")
+            has_p = dt.str.contains("Pollution")
+            cnt_d = (has_d & ~has_p).sum()
+            cnt_p = (~has_d & has_p).sum()
+            cnt_b = (has_d & has_p).sum()
+            logger.info(f"  {split_name} - Damaged: {cnt_d}, Pollution: {cnt_p}, Both: {cnt_b}")
+
+        # 클래스 가중치 계산
+        dt = train_df["defect_types"].fillna("")
+        has_d = dt.str.contains("Damaged")
+        has_p = dt.str.contains("Pollution")
+        counts = [(has_d & ~has_p).sum(), (~has_d & has_p).sum(), (has_d & has_p).sum()]
+        max_count = max(counts)
+        self.class_weights = torch.tensor([max_count / c if c > 0 else 1.0 for c in counts], dtype=torch.float32)
+        logger.info(f"  Class weights: {self.class_weights.tolist()}")
 
         self.train_dataset = DefectDataset(train_df, self.img_dir, transform=self.train_transform)
         self.val_dataset = DefectDataset(val_df, self.img_dir, transform=self.val_transform)
@@ -119,17 +140,15 @@ class DefectDataModule(pl.LightningDataModule):
 # Model
 # ============================================================
 class DefectClassifier(pl.LightningModule):
-    def __init__(self, num_classes=2, lr=1e-3, freeze_backbone=True):
+    def __init__(self, num_classes=3, lr=1e-3, freeze_backbone=True, class_weights=None):
         super().__init__()
-        self.save_hyperparameters()
+        self.save_hyperparameters(ignore=["class_weights"])
 
         self.backbone = models.efficientnet_b0(weights=models.EfficientNet_B0_Weights.DEFAULT)
 
         if freeze_backbone:
             for param in self.backbone.features.parameters():
                 param.requires_grad = False
-            # BN running stats도 고정하기 위해 features를 eval 모드로 설정
-            # (training_step에서 매번 재적용)
             self.backbone.features.eval()
 
         in_features = self.backbone.classifier[1].in_features
@@ -138,12 +157,13 @@ class DefectClassifier(pl.LightningModule):
             nn.Linear(in_features, num_classes),
         )
 
-        self.criterion = nn.BCEWithLogitsLoss()
-        self.train_acc = torchmetrics.Accuracy(task="multilabel", num_labels=num_classes)
-        self.val_acc = torchmetrics.Accuracy(task="multilabel", num_labels=num_classes)
-        self.val_f1 = torchmetrics.F1Score(task="multilabel", num_labels=num_classes)
-        self.val_precision = torchmetrics.Precision(task="multilabel", num_labels=num_classes)
-        self.val_recall = torchmetrics.Recall(task="multilabel", num_labels=num_classes)
+        self.register_buffer("class_weights", class_weights if class_weights is not None else torch.ones(num_classes))
+        self.criterion = nn.CrossEntropyLoss(weight=self.class_weights)
+        self.train_acc = torchmetrics.Accuracy(task="multiclass", num_classes=num_classes)
+        self.val_acc = torchmetrics.Accuracy(task="multiclass", num_classes=num_classes)
+        self.val_f1 = torchmetrics.F1Score(task="multiclass", num_classes=num_classes, average="macro")
+        self.val_precision = torchmetrics.Precision(task="multiclass", num_classes=num_classes, average="macro")
+        self.val_recall = torchmetrics.Recall(task="multiclass", num_classes=num_classes, average="macro")
 
     def get_gradcam_target_layer(self):
         return self.backbone.features[-1]
@@ -152,13 +172,11 @@ class DefectClassifier(pl.LightningModule):
         return self.backbone(x)
 
     def training_step(self, batch, batch_idx):
-        # Lightning이 매 epoch마다 model.train()을 호출하므로
-        # backbone features를 다시 eval 모드로 강제 (BN running stats 업데이트 방지)
         if self.hparams.freeze_backbone:
             self.backbone.features.eval()
         x, y = batch
         logits = self(x)
-        loss = self.criterion(logits, y.float())
+        loss = self.criterion(logits, y)
         self.train_acc(logits, y)
         self.log("train_loss", loss, prog_bar=True, sync_dist=True)
         self.log("train_acc", self.train_acc, prog_bar=True, sync_dist=True)
@@ -167,7 +185,7 @@ class DefectClassifier(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         x, y = batch
         logits = self(x)
-        loss = self.criterion(logits, y.float())
+        loss = self.criterion(logits, y)
         self.val_acc(logits, y)
         self.val_f1(logits, y)
         self.val_precision(logits, y)
@@ -307,12 +325,14 @@ def main():
             batch_size=args.batch_size,
             num_workers=args.num_workers,
         )
+        dm.setup()
 
         # --- Model ---
         model = DefectClassifier(
-            num_classes=2,
+            num_classes=3,
             lr=args.lr,
             freeze_backbone=not args.no_freeze,
+            class_weights=dm.class_weights,
         )
 
         # --- Callbacks ---

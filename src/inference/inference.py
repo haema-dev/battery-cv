@@ -2,6 +2,7 @@ import os
 import argparse
 from pathlib import Path
 import torch
+import torch.nn as nn
 import cv2
 import numpy as np
 
@@ -94,13 +95,14 @@ def run_inference(data_path, model_path, output_dir, skip_preprocess=False):
     print(f"🎯 Found categories: {[c.name for c in categories]}")
 
     # Forward hook to capture pre-normalization raw anomaly maps.
-    # PostProcessor is a Lightning callback (on_predict_batch_end), NOT called
-    # via model.post_processor in forward(). So we use register_forward_hook
-    # which fires after model.forward() but before any Lightning callbacks.
+    # Anomalib's predict_step calls self.model(batch) (inner model) directly,
+    # NOT self(batch), so the LightningModule's forward() is never called.
+    # We must hook the inner model (model.model) to intercept anomaly maps.
     raw_prenorm_maps = []
 
     def _capture_prenorm(module, input, output):
-        if hasattr(output, 'anomaly_map') and output.anomaly_map is not None:
+        has_amap = hasattr(output, 'anomaly_map') and output.anomaly_map is not None
+        if has_amap:
             paths = output.image_path if hasattr(output, 'image_path') else []
             for i in range(output.anomaly_map.shape[0]):
                 amap = output.anomaly_map[i].detach().cpu().numpy()
@@ -108,8 +110,17 @@ def run_inference(data_path, model_path, output_dir, skip_preprocess=False):
                     amap = amap.squeeze(0)
                 path = paths[i] if i < len(paths) else f"unknown_{len(raw_prenorm_maps)}"
                 raw_prenorm_maps.append({'path': path, 'anomaly_map': amap})
+        else:
+            print(f"  ⚠️ [Hook] output type={type(output).__name__}, "
+                  f"has anomaly_map={hasattr(output, 'anomaly_map')}")
 
-    hook_handle = model.register_forward_hook(_capture_prenorm)
+    # Hook inner model (model.model) first; fallback to model itself
+    if hasattr(model, 'model') and isinstance(model.model, nn.Module):
+        hook_target = model.model
+    else:
+        hook_target = model
+    hook_handle = hook_target.register_forward_hook(_capture_prenorm)
+    print(f"📌 Pre-norm hook target: {type(hook_target).__name__}")
 
     # 4. Process each category
     for cat_dir in categories:

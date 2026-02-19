@@ -121,8 +121,7 @@ def main():
             max_epochs=args.epochs, 
             accelerator="auto", 
             devices=1, 
-            default_root_dir=str(OUTPUT_DIR),
-            task="segmentation"
+            default_root_dir=str(OUTPUT_DIR)
         )
 
         # ================== 4. 모델 학습 & 평가 ==================== #

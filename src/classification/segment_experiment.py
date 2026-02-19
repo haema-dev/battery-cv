@@ -121,6 +121,52 @@ def segment_sam_box(predictor, img_rgb):
     return (best_mask * 255).astype(np.uint8)
 
 
+def segment_sam_otsu_box(predictor, img_rgb, img_bgr):
+    """Otsu로 bbox 추출 → SAM box+point 프롬프트"""
+    img_rgb = np.ascontiguousarray(img_rgb, dtype=np.uint8)
+    h, w = img_rgb.shape[:2]
+
+    # 1) Otsu로 대략적 마스크 → bbox 추출
+    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    _, binary = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
+    binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel, iterations=3)
+    binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel, iterations=2)
+    contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    if contours:
+        largest = max(contours, key=cv2.contourArea)
+        x1, y1, bw, bh = cv2.boundingRect(largest)
+        # bbox에 약간의 padding 추가
+        pad_x, pad_y = int(bw * 0.05), int(bh * 0.02)
+        box = np.array([
+            max(0, x1 - pad_x),
+            max(0, y1 - pad_y),
+            min(w, x1 + bw + pad_x),
+            min(h, y1 + bh + pad_y),
+        ])
+        # bbox 중심점을 positive point로 사용
+        cx = (box[0] + box[2]) // 2
+        cy = (box[1] + box[3]) // 2
+    else:
+        # fallback: 고정 margin
+        margin_x, margin_y = int(w * 0.3), int(h * 0.03)
+        box = np.array([margin_x, margin_y, w - margin_x, h - margin_y])
+        cx, cy = w // 2, h // 2
+
+    # 2) SAM에 box + center point 결합 프롬프트
+    predictor.set_image(img_rgb)
+    masks, scores, _ = predictor.predict(
+        point_coords=np.array([[cx, cy]]),
+        point_labels=np.array([1]),
+        box=box,
+        multimask_output=True,
+    )
+    best_mask = masks[np.argmax(scores)]
+    return (best_mask * 255).astype(np.uint8)
+
+
 # ============================================================
 # Classical CV Segmentation
 # ============================================================
@@ -269,7 +315,7 @@ def main():
     parser = argparse.ArgumentParser(description="Battery Segmentation Comparison")
     parser.add_argument("--data_path", type=str, required=True, help="Test data path")
     parser.add_argument("--output_dir", type=str, default="./outputs")
-    parser.add_argument("--sam_model", type=str, default="vit_b", choices=["vit_b", "vit_l", "vit_h"])
+    parser.add_argument("--sam_model", type=str, default="vit_h", choices=["vit_b", "vit_l", "vit_h"])
     parser.add_argument("--skip_sam", action="store_true", help="Skip SAM (CPU only)")
     parser.add_argument("--resize", type=int, default=0, help="Resize long edge before segmentation (0=원본)")
     args = parser.parse_args()
@@ -335,6 +381,7 @@ def main():
     if sam_predictor is not None:
         methods["SAM_point"] = lambda img: segment_sam_point(sam_predictor, cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
         methods["SAM_box"] = lambda img: segment_sam_box(sam_predictor, cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+        methods["SAM_otsu"] = lambda img: segment_sam_otsu_box(sam_predictor, cv2.cvtColor(img, cv2.COLOR_BGR2RGB), img)
     methods["Otsu"] = segment_otsu
     methods["HSV_S"] = segment_hsv_s
     methods["Canny"] = segment_canny

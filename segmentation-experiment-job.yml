@@ -1,0 +1,21 @@
+$schema: https://azuremlschemas.azureedge.net/latest/commandJob.schema.json
+type: command
+display_name: "S2_Segmentation_Comparison_Experiment"
+experiment_name: Battery_S2_Segmentation
+
+code: src/classification
+command: >-
+  pip install segment-anything &&
+  python segment_experiment.py
+  --data_path ${{inputs.test_data}}
+  --output_dir ./outputs
+  --sam_model vit_h
+  --resize 256
+
+inputs:
+  test_data:
+    type: uri_folder
+    path: azureml:test_data@latest
+
+compute: azureml:gpu-advanced
+environment: azureml:env-yolo@latest

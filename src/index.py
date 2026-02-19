@@ -205,11 +205,19 @@ def main():
         logger.info(f"FastFlow 모델 생성 완료 (backbone={args.backbone}, flow_steps={args.flow_steps})")
 
         # ── 사전학습 가중치 로드 (선택) ───────────────
+        # .ckpt → Lightning 체크포인트: engine에 전달
+        # .pt/.pth → state_dict: 직접 로드 후 ckpt_path=None
+        ckpt_path = None
         if args.model_path and os.path.exists(args.model_path):
-            logger.info(f"체크포인트 로드: {args.model_path}")
-            ckpt_path = args.model_path
-        else:
-            ckpt_path = None
+            if args.model_path.endswith(".ckpt"):
+                logger.info(f"Lightning 체크포인트 로드: {args.model_path}")
+                ckpt_path = args.model_path
+            else:
+                logger.info(f"state_dict 수동 로드: {args.model_path}")
+                raw = torch.load(args.model_path, map_location="cpu")
+                state_dict = raw.get("state_dict", raw) if isinstance(raw, dict) else raw
+                missing, unexpected = model.load_state_dict(state_dict, strict=False)
+                logger.info(f"가중치 로드 완료 (missing={len(missing)}, unexpected={len(unexpected)})")
 
         # ── 콜백 구성 ────────────────────────────────
         callbacks = []

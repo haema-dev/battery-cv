@@ -133,8 +133,9 @@ def main():
             abnormal_dirs = [f"validation/{d.name}" for d in val_path.iterdir() if d.is_dir() and d.name != "good"]
         logger.info(f"  검증용 불량 카테고리: {abnormal_dirs}")
 
+        # Anomalib 모델이 내부적으로 256x256 Resize를 적용하므로 중복 Resize 제거
+        # (기존 512x512 Resize는 모델 transform에 의해 무시됨)
         transform = Compose([
-            Resize((512, 512)),
             Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ])
 
@@ -144,8 +145,8 @@ def main():
             normal_dir="train/good",
             normal_test_dir="validation/good" if (base_path / "validation/good").exists() else None,
             abnormal_dir=abnormal_dirs if abnormal_dirs else None,
-            train_batch_size=8,
-            eval_batch_size=4,
+            train_batch_size=4,  # WideResNet50 on 16GB GPU: OOM 방지
+            eval_batch_size=2,
             num_workers=effective_workers,
             augmentations=transform,
             seed=args.seed

@@ -7,6 +7,7 @@
 - engine.export()로 TorchInferencer 호환 모델 생성
 """
 import os
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 import torch
 import argparse
 import mlflow
@@ -145,8 +146,8 @@ def main():
             normal_dir="train/good",
             normal_test_dir="validation/good" if (base_path / "validation/good").exists() else None,
             abnormal_dir=abnormal_dirs if abnormal_dirs else None,
-            train_batch_size=4,  # WideResNet50 on 16GB GPU: OOM 방지
-            eval_batch_size=2,
+            train_batch_size=2,  # WideResNet50 on 16GB GPU: OOM 방지 (15.56GiB)
+            eval_batch_size=1,
             num_workers=effective_workers,
             augmentations=transform,
             seed=args.seed

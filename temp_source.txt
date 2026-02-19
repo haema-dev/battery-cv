@@ -1,0 +1,25 @@
+    def predict(self, image: str | Path | np.ndarray | PILImage | torch.Tensor) -> ImageBatch:
+        """Predict anomalies for an input image.
+
+        Args:
+            image (str | Path | np.ndarray | PILImage | torch.Tensor): Input image to predict.
+                Can be a file path or PyTorch tensor.
+
+        Returns:
+            ImageBatch: Prediction results containing anomaly maps and scores.
+
+        Example:
+            >>> model = TorchInferencer(path="path/to/model.pt")
+            >>> predictions = model.predict("path/to/image.jpg")
+            >>> predictions.anomaly_map.shape  # doctest: +SKIP
+            torch.Size([1, 256, 256])
+        """
+        if isinstance(image, str | Path):
+            image = read_image(image, as_tensor=True)
+        elif isinstance(image, np.ndarray | PILImage):
+            image = to_dtype(to_image(image), torch.float32, scale=True)
+
+        image = self.pre_process(image)
+        predictions = self.model(image)
+
+        return ImageBatch(image=image, **predictions._asdict())

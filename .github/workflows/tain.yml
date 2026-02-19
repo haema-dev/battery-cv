@@ -3,7 +3,8 @@ name: 01_Auto_Train_and_Register
 on:
   push:
     paths:
-      - "src/**" # 해당 폴더의 변경사항이 있을 때 push
+      - "src/**"
+      - "pipeline.yml"
 
 jobs:
   train:
@@ -28,7 +29,7 @@ jobs:
 
       - name: Run Job
         run: |
-          JOB_NAME=$(az ml job create --file train-job.yml --query name -o tsv)
+          JOB_NAME=$(az ml job create --file pipeline.yml --query name -o tsv)
 
           echo "JOB_NAME=$JOB_NAME" >> $GITHUB_ENV
           echo "✅ Job 제출 완료!"

@@ -104,6 +104,70 @@ def annotate_image(canvas: np.ndarray, score: float, is_defect: bool) -> np.ndar
 
 
 # ────────────────────────────────────────────────
+# state_dict 자동 분석 유틸
+# ────────────────────────────────────────────────
+def detect_backbone(state_dict: dict):
+    """state_dict 키/형상으로 backbone 아키텍처 자동 감지.
+
+    layer1 첫 conv 형상으로 BasicBlock(resnet18/34) vs Bottleneck(resnet50+) 구별.
+    """
+    for key, val in state_dict.items():
+        if "feature_extractor.layer1.0.conv1.weight" in key:
+            shape = tuple(val.shape)          # (out_ch, in_ch, kH, kW)
+            if len(shape) == 4 and shape[2] == 3:       # 3×3 → BasicBlock
+                return "resnet18"
+            elif len(shape) == 4 and shape[0] == 128:   # 1×1 wide  → wide_resnet50_2
+                return "wide_resnet50_2"
+            elif len(shape) == 4:                        # 1×1 standard → resnet50
+                return "resnet50"
+    return None
+
+
+def detect_flow_steps(state_dict: dict):
+    """state_dict 키 패턴(nf_flows.N.)에서 flow_steps 수 자동 감지."""
+    import re
+    indices = set()
+    for key in state_dict:
+        m = re.search(r"nf_flows\.(\d+)\.", key)
+        if m:
+            indices.add(int(m.group(1)))
+    return max(indices) + 1 if indices else None
+
+
+class FastflowCompat(Fastflow):
+    """anomalib 1.x / 2.x 체크포인트 호환 래퍼.
+
+    post_processor 등 버전별 불일치 키를 필터링 후 strict=False 로 로드.
+    기존 Fastflow 와 모든 학습/추론 동작은 동일하며 on_load_checkpoint 만 재정의.
+    """
+
+    def on_load_checkpoint(self, checkpoint: dict) -> None:
+        # anomalib 2.x: eval_transform 복구
+        if "transform" in checkpoint:
+            try:
+                self.eval_transform = checkpoint["transform"]
+            except Exception:
+                pass
+
+        sd = checkpoint.get("state_dict", {})
+        # anomalib 1.x 에서만 존재하는 키 제거 (2.x 와 구조 불일치)
+        skip_prefixes = ("post_processor", "normalization_metrics")
+        filtered = {
+            k: v for k, v in sd.items()
+            if not any(k.startswith(p) for p in skip_prefixes)
+        }
+        missing, unexpected = self.load_state_dict(filtered, strict=False)
+        loaded = len(filtered) - len(unexpected)
+        logger.info(
+            f"체크포인트 로드 완료 (strict=False): "
+            f"{loaded}/{len(filtered)} 키 적용 | "
+            f"missing={len(missing)} unexpected={len(unexpected)}"
+        )
+        if unexpected:
+            logger.debug(f"무시된 키 (앞 3개): {unexpected[:3]}")
+
+
+# ────────────────────────────────────────────────
 # 메인
 # ────────────────────────────────────────────────
 def main():
@@ -220,35 +284,25 @@ def main():
                 seed=args.seed,
             )
 
-        # ── FastFlow 모델 ────────────────────────────
-        # ★ anomalib 2.x: model.setup() 불필요, engine이 자동 처리
-        model = Fastflow(
-            backbone=args.backbone,
-            pre_trained=True,
-            flow_steps=args.flow_steps,
-            conv3x3_only=False,   # wide_resnet50_2: 1x1+3x3 모두 사용
-            hidden_ratio=args.hidden_ratio,
-        )
-        logger.info(f"FastFlow 모델 생성 완료 (backbone={args.backbone}, flow_steps={args.flow_steps})")
-
-        # ── 사전학습 가중치 로드 (선택) ───────────────
-        # engine.predict(ckpt_path=...)로 전달해야 engine이 setup() 후 가중치를 올바르게 복구함.
-        # .pt(state_dict)는 Lightning ckpt 형식으로 래핑하여 ckpt_path로 사용.
-        # 직접 load_state_dict()로 로드하면 engine.predict() 중 model.setup()이
-        # flow 모듈과 threshold를 재초기화하여 덮어씀 → AUROC 0.5 문제 발생.
+        # ── 사전학습 가중치 사전 분석 (backbone 자동 감지 후 모델 생성) ──────────────
+        # engine.predict(ckpt_path=...)로 전달해야 engine이 setup() 후 올바르게 복구함.
+        # 직접 load_state_dict()는 model.setup()에 의해 덮여씌워져 AUROC 0.5 문제 발생.
         import lightning as L
         import tempfile
 
-        saved_thresh = None   # state_dict에서 미리 추출한 임계값
-        tmp_ckpt_path = None  # 임시 파일 경로 (finally에서 삭제)
-        ckpt_path = None
+        saved_thresh   = None   # state_dict에서 미리 추출한 임계값
+        tmp_ckpt_path  = None   # 임시 파일 경로 (finally에서 삭제)
+        ckpt_path      = None
+        state_dict     = None
+        eff_backbone   = args.backbone
+        eff_flow_steps = args.flow_steps
 
         if args.model_path and os.path.exists(args.model_path):
             if args.model_path.endswith(".ckpt"):
                 logger.info(f"Lightning 체크포인트 사용: {args.model_path}")
                 ckpt_path = args.model_path
             else:
-                # state_dict 로드
+                # state_dict 사전 로드
                 try:
                     raw = torch.load(args.model_path, map_location="cpu", weights_only=True)
                 except Exception:
@@ -257,37 +311,70 @@ def main():
                 state_dict = raw.get("state_dict", raw) if isinstance(raw, dict) else raw
                 logger.info(f"state_dict 로드 완료 (키 수: {len(state_dict)})")
 
-                # 임계값 미리 추출 (engine 실행 전)
+                # ── backbone 자동 감지 ─────────────────────────────────────
+                detected_bb = detect_backbone(state_dict)
+                if detected_bb and detected_bb != eff_backbone:
+                    logger.warning(
+                        f"backbone 불일치 감지: 저장={detected_bb} / 요청={eff_backbone} "
+                        f"→ 저장 모델 기준({detected_bb}) 적용"
+                    )
+                    eff_backbone = detected_bb
+                elif detected_bb:
+                    logger.info(f"backbone 감지 확인: {detected_bb}")
+
+                # ── flow_steps 자동 감지 ──────────────────────────────────
+                detected_fs = detect_flow_steps(state_dict)
+                if detected_fs and detected_fs != eff_flow_steps:
+                    logger.warning(
+                        f"flow_steps 불일치 감지: 저장={detected_fs} / 요청={eff_flow_steps} "
+                        f"→ 저장 모델 기준({detected_fs}) 적용"
+                    )
+                    eff_flow_steps = detected_fs
+
+                # ── 임계값 추출 (anomalib 1.x / 2.x 키명 모두 지원) ────────
                 for k, v in state_dict.items():
-                    if "image_threshold" in k and "value" in k:
+                    if ("image_threshold" in k and "value" in k) or \
+                       k == "post_processor._image_threshold":
                         saved_thresh = float(v.item() if hasattr(v, "item") else v)
-                        logger.info(f"state_dict 임계값 추출: {saved_thresh:.6f}")
+                        logger.info(f"임계값 추출: {saved_thresh:.6f}  (키={k})")
                         break
                 if saved_thresh is None:
                     logger.warning(
-                        "state_dict에 image_threshold.value 없음. "
-                        "이 model.pt는 학습 완료본이 아닐 수 있습니다. "
-                        "--threshold 로 임계값을 수동 지정하세요."
+                        "state_dict에 임계값 없음. "
+                        "--threshold 로 수동 지정하거나 0.5 fallback 사용."
                     )
 
-                # Lightning ckpt 형식으로 래핑 → engine이 setup() 후 올바르게 복구
-                # anomalib 2.x on_load_checkpoint()는 "transform" 키를 필수로 요구함
-                wrapped = {
-                    "state_dict": state_dict,
-                    "transform": eval_transform,       # ← anomalib 2.x 필수 키
-                    "pytorch-lightning_version": L.__version__,
-                    "epoch": 0,
-                    "global_step": 0,
-                    "loops": {},
-                    "callbacks": {},
-                    "optimizer_states": [],
-                    "lr_schedulers": [],
-                }
-                with tempfile.NamedTemporaryFile(suffix=".ckpt", delete=False) as f:
-                    tmp_ckpt_path = f.name
-                torch.save(wrapped, tmp_ckpt_path)
-                ckpt_path = tmp_ckpt_path
-                logger.info(f"state_dict → Lightning ckpt 래핑 완료")
+        # ── FastFlow 모델 (자동 감지된 backbone/flow_steps 적용) ─────────────
+        # FastflowCompat: on_load_checkpoint에서 strict=False + 구버전 키 필터링 처리
+        model = FastflowCompat(
+            backbone=eff_backbone,
+            pre_trained=True,
+            flow_steps=eff_flow_steps,
+            conv3x3_only=False,
+            hidden_ratio=args.hidden_ratio,
+        )
+        logger.info(f"FastFlow 모델 생성 완료 (backbone={eff_backbone}, flow_steps={eff_flow_steps})")
+
+        # ── state_dict → Lightning ckpt 래핑 ─────────────────────────────
+        # anomalib 2.x on_load_checkpoint()는 "transform" 키를 필수로 요구함.
+        # FastflowCompat.on_load_checkpoint가 내부적으로 strict=False 로 로드.
+        if state_dict is not None:
+            wrapped = {
+                "state_dict": state_dict,
+                "transform": eval_transform,
+                "pytorch-lightning_version": L.__version__,
+                "epoch": 0,
+                "global_step": 0,
+                "loops": {},
+                "callbacks": {},
+                "optimizer_states": [],
+                "lr_schedulers": [],
+            }
+            with tempfile.NamedTemporaryFile(suffix=".ckpt", delete=False) as f:
+                tmp_ckpt_path = f.name
+            torch.save(wrapped, tmp_ckpt_path)
+            ckpt_path = tmp_ckpt_path
+            logger.info("state_dict → Lightning ckpt 래핑 완료")
 
         # ── 콜백 구성 ────────────────────────────────
         callbacks = []

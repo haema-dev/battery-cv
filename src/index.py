@@ -83,6 +83,27 @@ def blend_heatmap(image_tensor, amap_tensor, alpha: float = 0.6):
 
 
 # ────────────────────────────────────────────────
+# 판정 결과 + 점수 텍스트 오버레이
+# ────────────────────────────────────────────────
+def annotate_image(canvas: np.ndarray, score: float, is_defect: bool) -> np.ndarray:
+    """이미지 상단에 DEFECT/NORMAL 판정과 anomaly score를 표시한다."""
+    label = "DEFECT" if is_defect else "NORMAL"
+    color = (0, 0, 230) if is_defect else (0, 180, 0)   # BGR: 적/녹
+    h, w  = canvas.shape[:2]
+    bar_h = max(30, h // 10)
+    # 반투명 검은 배경 바
+    overlay = canvas.copy()
+    cv2.rectangle(overlay, (0, 0), (w, bar_h), (20, 20, 20), -1)
+    cv2.addWeighted(overlay, 0.6, canvas, 0.4, 0, canvas)
+    # 텍스트
+    font_scale = max(0.5, bar_h / 45)
+    cv2.putText(canvas, f"{label}  score={score:.4f}",
+                (6, int(bar_h * 0.72)),
+                cv2.FONT_HERSHEY_SIMPLEX, font_scale, color, 2, cv2.LINE_AA)
+    return canvas
+
+
+# ────────────────────────────────────────────────
 # 메인
 # ────────────────────────────────────────────────
 def main():
@@ -369,14 +390,30 @@ def main():
                     # 폴더명으로 정답 라벨 추정: good → 0(정상), 그 외 → 1(불량)
                     gt_label   = 0 if parent_dir == "good" else 1
 
+                    file_name = Path(path).name
+                    # defect / normal 서브폴더로 분류
+                    subdir = vis_dir / ("defect" if pred_label else "normal")
+                    subdir.mkdir(parents=True, exist_ok=True)
+                    save_path = subdir / f"vis_{file_name}"
+
                     if amaps is not None and images is not None:
-                        blended   = blend_heatmap(images[i], amaps[i])
-                        file_name = Path(path).name
-                        save_path = vis_dir / f"vis_{file_name}"
-                        cv2.imwrite(str(save_path), blended)
+                        # 히트맵 오버레이: 불량 부위 = 빨간색(JET high)
+                        canvas = blend_heatmap(images[i], amaps[i])
+                    elif images is not None:
+                        # anomaly_map 없을 때: 원본만 사용
+                        orig = images[i].cpu().numpy() if hasattr(images[i], "cpu") else images[i]
+                        if orig.ndim == 3 and orig.shape[0] == 3:
+                            orig = orig.transpose(1, 2, 0)
+                        orig_vis = ((orig - orig.min()) / (orig.max() - orig.min() + 1e-8) * 255).astype(np.uint8)
+                        canvas = cv2.cvtColor(orig_vis, cv2.COLOR_RGB2BGR)
+                    else:
+                        canvas = None
+
+                    if canvas is not None:
+                        annotate_image(canvas, score, pred_label)
+                        cv2.imwrite(str(save_path), canvas)
                         vis_path_str = str(save_path)
                     else:
-                        file_name    = Path(path).name
                         vis_path_str = ""
 
                     records.append({

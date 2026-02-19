@@ -484,22 +484,50 @@ def main():
             for batch in (predictions or []):
                 paths, images, amaps, scores, labels = parse_batch(batch)
 
-                nan_count = 0
+                nan_count   = 0
+                score_log_n = 0   # 디버그: 첫 N개 score 로그 출력
                 for i in range(len(paths)):
-                    path  = paths[i]
-                    score = float(scores[i]) if i < len(scores) else 0.0
+                    path = paths[i]
 
-                    # NaN/Inf guard: FP16 수치 불안정 시 발생 가능
-                    if not np.isfinite(score):
-                        nan_count += 1
-                        score = 0.0   # 안전값으로 대체 (정상 스코어 0)
+                    # ── Raw score: anomaly_map.max() 우선 사용 ──────────────
+                    # pred_score(anomalib 2.x)는 post_processor 정규화 통계가
+                    # 없으면 0.0 고정 → AUROC=0.5, 모두 정상 오분류 발생.
+                    # anomaly_map의 max는 정규화를 거치지 않은 raw score이므로
+                    # anomalib 1.x state_dict의 raw threshold와 직접 비교 가능.
+                    if amaps is not None and i < len(amaps):
+                        amap_i = amaps[i]
+                        amap_np = amap_i.cpu().numpy() if hasattr(amap_i, "cpu") else np.asarray(amap_i)
+                        amap_np = amap_np.squeeze()
+                        raw_score = float(np.nanmax(amap_np))
+                        if not np.isfinite(raw_score):
+                            nan_count += 1
+                            raw_score = 0.0
+                        score = raw_score
+                    elif i < len(scores):
+                        score = float(scores[i])
+                        if not np.isfinite(score):
+                            nan_count += 1
+                            score = 0.0
+                    else:
+                        score = 0.0
 
-                    # pred_label 우선, 없으면 임계값으로 직접 판정
-                    if i < len(labels):
+                    # 처음 5장 score 로그 (디버그용)
+                    if score_log_n < 5:
+                        logger.debug(
+                            f"[score debug #{score_log_n}] {Path(path).name} "
+                            f"score={score:.6f}  thr={decision_threshold}"
+                        )
+                        score_log_n += 1
+
+                    # ── 판정: custom threshold 우선, 없으면 모델 pred_label ──
+                    # 모델의 pred_label은 정규화 통계 없이 default threshold 0.5 기준이라
+                    # saved_thresh가 있으면 반드시 우리 threshold를 사용한다.
+                    if decision_threshold is not None:
+                        pred_label = score > decision_threshold
+                    elif i < len(labels):
                         pred_label = bool(labels[i])
                     else:
-                        thr = decision_threshold if decision_threshold is not None else 0.5
-                        pred_label = score > thr
+                        pred_label = score > 0.5
 
                     parent_dir = Path(path).parent.name
                     # 폴더명으로 정답 라벨 추정: good → 0(정상), 그 외 → 1(불량)

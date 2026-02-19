@@ -90,15 +90,21 @@ def main():
         ])
 
         # 데이터 세트의 최상위 루트를 안전하게 설정합니다.
-        data_root_dir = dataset_root.parent.parent if dataset_root != base_path else base_path
+        if dataset_root is not None and dataset_root != base_path:
+            # train/good 구조가 발견된 경우
+            data_root_dir = dataset_root.parent.parent
+        else:
+            # 못 찾았거나 flat한 경우
+            data_root_dir = base_path
         
         datamodule = Folder(
             name="battery_extreme",
             root=str(data_root_dir),
             normal_dir="train/good",
+            normal_test_dir="test/good", 
+            abnormal_dir="test/bad",    
             test_split_mode="from_dir",
-            test_dir="test",
-            train_batch_size=8, # WideResNet50 메모리 점유 고려 하향
+            train_batch_size=4, # [Stability] WideResNet50 + 512x512 메모리 최적화
             eval_batch_size=1,
             num_workers=4,
             transform=transforms,

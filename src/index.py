@@ -132,6 +132,7 @@ def main():
         f"PRECISION={args.precision}"
     )
 
+    tmp_ckpt_path = None  # finally에서 임시 파일 정리용
     try:
         dataset_root = Path(args.data_path)
         img_sz = args.image_size
@@ -210,24 +211,56 @@ def main():
         logger.info(f"FastFlow 모델 생성 완료 (backbone={args.backbone}, flow_steps={args.flow_steps})")
 
         # ── 사전학습 가중치 로드 (선택) ───────────────
-        # .ckpt → Lightning 체크포인트: engine에 전달
-        # .pt/.pth → state_dict: 직접 로드 후 ckpt_path=None
+        # engine.predict(ckpt_path=...)로 전달해야 engine이 setup() 후 가중치를 올바르게 복구함.
+        # .pt(state_dict)는 Lightning ckpt 형식으로 래핑하여 ckpt_path로 사용.
+        # 직접 load_state_dict()로 로드하면 engine.predict() 중 model.setup()이
+        # flow 모듈과 threshold를 재초기화하여 덮어씀 → AUROC 0.5 문제 발생.
+        import lightning as L
+        import tempfile
+
+        saved_thresh = None   # state_dict에서 미리 추출한 임계값
+        tmp_ckpt_path = None  # 임시 파일 경로 (finally에서 삭제)
         ckpt_path = None
+
         if args.model_path and os.path.exists(args.model_path):
             if args.model_path.endswith(".ckpt"):
-                logger.info(f"Lightning 체크포인트 로드: {args.model_path}")
+                logger.info(f"Lightning 체크포인트 사용: {args.model_path}")
                 ckpt_path = args.model_path
             else:
-                logger.info(f"state_dict 수동 로드: {args.model_path}")
-                raw = torch.load(args.model_path, map_location="cpu")
-                state_dict = raw.get("state_dict", raw) if isinstance(raw, dict) else raw
-                missing, unexpected = model.load_state_dict(state_dict, strict=False)
-                logger.info(f"가중치 로드 완료 (missing={len(missing)}, unexpected={len(unexpected)})")
+                # state_dict 로드
                 try:
-                    thresh_val = model.image_threshold.value.item()
-                    logger.info(f"로드된 이미지 임계값: {thresh_val:.6f}")
+                    raw = torch.load(args.model_path, map_location="cpu", weights_only=True)
                 except Exception:
-                    logger.warning("image_threshold 확인 불가 (--threshold로 수동 지정 권장)")
+                    raw = torch.load(args.model_path, map_location="cpu", weights_only=False)
+
+                state_dict = raw.get("state_dict", raw) if isinstance(raw, dict) else raw
+                logger.info(f"state_dict 로드 완료 (키 수: {len(state_dict)})")
+
+                # 임계값 미리 추출 (engine 실행 전)
+                for k, v in state_dict.items():
+                    if "image_threshold" in k and "value" in k:
+                        saved_thresh = float(v.item() if hasattr(v, "item") else v)
+                        logger.info(f"state_dict 임계값 추출: {saved_thresh:.6f}")
+                        break
+                if saved_thresh is None:
+                    logger.warning("state_dict에 image_threshold.value 없음 – fallback 사용 예정")
+
+                # Lightning ckpt 형식으로 래핑 → engine이 setup() 후 올바르게 복구
+                wrapped = {
+                    "state_dict": state_dict,
+                    "pytorch-lightning_version": L.__version__,
+                    "epoch": 0,
+                    "global_step": 0,
+                    "loops": {},
+                    "callbacks": {},
+                    "optimizer_states": [],
+                    "lr_schedulers": [],
+                }
+                with tempfile.NamedTemporaryFile(suffix=".ckpt", delete=False) as f:
+                    tmp_ckpt_path = f.name
+                torch.save(wrapped, tmp_ckpt_path)
+                ckpt_path = tmp_ckpt_path
+                logger.info(f"state_dict → Lightning ckpt 래핑 완료")
 
         # ── 콜백 구성 ────────────────────────────────
         callbacks = []
@@ -299,17 +332,20 @@ def main():
             )
 
             # ── 판정 임계값 결정 ─────────────────────────
-            # 우선순위: --threshold 인수 > 모델 저장값 > fallback(0.5)
+            # 우선순위: --threshold 인수 > state_dict 추출값 > 모델값 > 0.5 fallback
             if args.threshold is not None:
                 decision_threshold = args.threshold
                 logger.info(f"수동 임계값 사용: {decision_threshold:.6f}")
+            elif saved_thresh is not None:
+                decision_threshold = saved_thresh
+                logger.info(f"state_dict 추출 임계값 사용: {decision_threshold:.6f}")
             else:
                 try:
                     decision_threshold = model.image_threshold.value.item()
                     logger.info(f"모델 임계값 사용: {decision_threshold:.6f}")
                 except Exception:
-                    decision_threshold = None   # 배치별 pred_label 우선, 없으면 0.5
-                    logger.warning("임계값 로드 실패 – pred_label 또는 0.5 fallback 사용")
+                    decision_threshold = None
+                    logger.warning("임계값 없음 – pred_label 또는 0.5 fallback 사용")
 
             records = []
             vis_dir = OUTPUT_DIR / "visualizations"
@@ -461,6 +497,10 @@ def main():
         import traceback
         logger.debug(traceback.format_exc())
         raise
+    finally:
+        # state_dict 래핑용 임시 .ckpt 파일 정리
+        if tmp_ckpt_path and os.path.exists(tmp_ckpt_path):
+            os.unlink(tmp_ckpt_path)
 
 
 if __name__ == "__main__":

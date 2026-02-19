@@ -78,9 +78,6 @@ jobs:
         mode: mount
     compute: azureml:gpu-advanced
     environment: azureml:env-yolo@latest
-    distribution:
-      type: PyTorch
-      process_count_per_instance: 4
     resources:
       instance_count: 1
       shm_size: "16g"

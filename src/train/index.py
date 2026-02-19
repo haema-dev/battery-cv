@@ -1,23 +1,28 @@
 # -*- coding: utf-8 -*-
+"""
+배터리 이상탐지 PatchCore 학습 (Azure ML Pipeline용)
+- PatchCore + WideResNet50 backbone
+- 단일 GPU / 멀티 GPU(DDP) 자동 지원
+- image-level 메트릭 (AUROC, F1) + threshold 확정
+- engine.export()로 TorchInferencer 호환 모델 생성
+"""
 import os
 import torch
 import argparse
 import mlflow
 import json
 import time
-import cv2
 import random
 import numpy as np
 from loguru import logger
-from anomalib.models import Fastflow
-from torch import optim
+from anomalib.models import Patchcore
 from anomalib.data import Folder
 from anomalib.engine import Engine
 from anomalib.loggers import AnomalibMLFlowLogger
 from pathlib import Path
 from torchvision.transforms.v2 import Compose, Normalize, Resize
-from lightning.pytorch.callbacks import EarlyStopping
-from anomalib.metrics import AUROC, F1Score, Evaluator, F1AdaptiveThreshold
+from anomalib.metrics import AUROC, F1Score, Evaluator
+
 
 def set_seed(seed):
     random.seed(seed)
@@ -26,109 +31,128 @@ def set_seed(seed):
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
 
-# TunableFastflow sub-classing is removed to align with native Anomalib serialization.
 
 def main():
-    # ================== 1. Input/Output 설정 ==================== #
-    parser = argparse.ArgumentParser()    
+    parser = argparse.ArgumentParser()
     parser.add_argument("--data_path", type=str, required=True, help="Path to mounted data asset")
-    parser.add_argument('--output_dir', type=str, default='./outputs')
-    parser.add_argument("--epochs", type=int, default=50)
-    parser.add_argument("--backbone", type=str, default="resnet18", help="Feature extractor backbone")
-    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
-    parser.add_argument("--lr", type=float, default=0.0001, help="Learning rate (Lowered for stability)")
-    parser.add_argument("--weight_decay", type=float, default=1e-5, help="Weight decay")
+    parser.add_argument("--output_dir", type=str, default="./outputs")
+    parser.add_argument("--epochs", type=int, default=1, help="PatchCore는 1 epoch이면 충분")
+    parser.add_argument("--backbone", type=str, default="wide_resnet50_2")
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--coreset_sampling_ratio", type=float, default=0.1)
+    parser.add_argument("--num_neighbors", type=int, default=9)
+    parser.add_argument("--num_workers", type=int, default=4)
+    parser.add_argument("--devices", type=int, default=0, help="GPU count (0=auto)")
 
     args = parser.parse_args()
     set_seed(args.seed)
     base_path = Path(args.data_path)
-    
-    logger.info("==================================================")
-    logger.info(" S1_FastFlow_Training: [Production Ready Mode]")
-    logger.info(f" 마운트 루트: {base_path}")
-    logger.info(f" 설정: Backbone={args.backbone}, Epochs={args.epochs}, Seed={args.seed}")
-    logger.info("==================================================")
 
-    # [디버깅] 실제 마운트된 파일 구조를 2단계까지 출력 (ls -R 스타일)
+    logger.info("=" * 60)
+    logger.info("S1_PatchCore_Training (Azure ML Pipeline)")
+    logger.info(f"  Data path: {base_path}")
+    logger.info(f"  Backbone: {args.backbone}, Coreset: {args.coreset_sampling_ratio}, Neighbors: {args.num_neighbors}")
+    logger.info("=" * 60)
+
+    # --- 디버깅: 마운트 구조 출력 ---
     try:
-        logger.info(" [Debug] 마운트된 디렉토리 구조 탐색 중...")
         for root, dirs, files in os.walk(base_path):
             level = len(Path(root).relative_to(base_path).parts)
-            if level <= 2: # 너무 길어지지 않게 2단계까지만
+            if level <= 2:
                 indent = "  " * level
-                logger.info(f"{indent} {Path(root).name}/ ({len(files)} files)")
-            if level > 2: continue # 더 깊은 곳은 생략
+                logger.info(f"{indent}{Path(root).name}/ ({len(files)} files)")
+            if level > 2:
+                continue
     except Exception as e:
-        logger.warning(f" 구조 출력 중 오류 (무시 가능): {e}")
+        logger.warning(f"  구조 출력 중 오류 (무시): {e}")
 
-    # [Fail-Fast] 필수 폴더 존재 여부 체크
+    # --- 필수 폴더 체크 ---
     train_path = base_path / "train/good"
     val_path = base_path / "validation"
-    
-    check_targets = {
-        "학습용 정상 데이터 (train/good)": train_path,
-        "검증용 데이터 (validation)": val_path
-    }
-    
-    missing_critical = False
-    for label, path in check_targets.items():
-        if path.exists():
-            logger.info(f" {label} 확인 완료: {path}")
-        else:
-            logger.error(f" {label}을(를) 찾을 수 없음: {path}")
-            if label == "학습용 정상 데이터 (train/good)":
-                missing_critical = True
 
-    if missing_critical:
-        raise FileNotFoundError(f" 필수 학습 경로가 없습니다. 위 로그를 보고 데이터 구조를 확인하세요.")
+    if not train_path.exists():
+        raise FileNotFoundError(f"필수 학습 경로가 없습니다: {train_path}")
+    logger.info(f"  train/good 확인: {train_path}")
 
-    dataset_root = base_path
+    if val_path.exists():
+        logger.info(f"  validation 확인: {val_path}")
+    else:
+        logger.warning(f"  validation 없음 - test 없이 학습만 진행")
 
-    # ================== 2. MLflow & Output 설정 ==================== #
-    mlflow.start_run()
+    # --- DDP: 멀티 GPU 자동 감지 ---
+    local_rank = int(os.environ.get("LOCAL_RANK", 0))
+    world_size = int(os.environ.get("WORLD_SIZE", 1))
+    is_main_process = local_rank == 0
+    num_gpus = torch.cuda.device_count()
+
+    logger.info(f"  DDP: LOCAL_RANK={local_rank}, WORLD_SIZE={world_size}, GPUs={num_gpus}")
+
+    if world_size > 1 and num_gpus > 1:
+        use_devices = num_gpus
+        strategy = "ddp"
+        accelerator = "gpu"
+    elif num_gpus >= 1:
+        use_devices = 1
+        strategy = "auto"
+        accelerator = "gpu"
+    else:
+        use_devices = 1
+        strategy = "auto"
+        accelerator = "cpu"
+
+    # DDP일 때 num_workers 조정 (OOM 방지)
+    effective_workers = min(args.num_workers, max(2, args.num_workers // max(use_devices, 1)))
+    logger.info(f"  Using: devices={use_devices}, strategy={strategy}, accelerator={accelerator}")
+    logger.info(f"  Workers: {args.num_workers} -> {effective_workers} (adjusted)")
+
     OUTPUT_DIR = Path(args.output_dir)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    logger.info(f" 사용 장치: {device}")
+
+    # --- MLflow (main process만) ---
+    mlflow_active = False
+    if is_main_process:
+        try:
+            mlflow.start_run()
+            mlflow.log_params({
+                "model": "patchcore",
+                "backbone": args.backbone,
+                "coreset_sampling_ratio": args.coreset_sampling_ratio,
+                "num_neighbors": args.num_neighbors,
+                "num_gpus": world_size,
+                "strategy": strategy,
+            })
+            mlflow_active = True
+            logger.info("  MLflow tracking enabled")
+        except Exception as e:
+            logger.warning(f"  MLflow init failed (training continues): {e}")
 
     try:
-        # ================== 3. Anomalib 데이터 구성 ==================== #
-        logger.info(f" 데이터셋 로딩 중: {dataset_root}")
-        
-        # [Dynamic Detection] 'good'을 제외한 모든 폴더를 불량(abnormal) 카테고리로 수집합니다.
-        val_root = base_path / "validation"
+        # --- 데이터 구성 ---
         abnormal_dirs = []
-        if val_root.exists():
-            abnormal_dirs = [f"validation/{d.name}" for d in val_root.iterdir() if d.is_dir() and d.name != "good"]
-        
-        logger.info(f" 검증용 불량 카테고리 자동 감지: {abnormal_dirs}")
+        if val_path.exists():
+            abnormal_dirs = [f"validation/{d.name}" for d in val_path.iterdir() if d.is_dir() and d.name != "good"]
+        logger.info(f"  검증용 불량 카테고리: {abnormal_dirs}")
 
-        # [Stability] Add Normalization for pre-trained backbones
         transform = Compose([
-            Resize((256, 256)),
+            Resize((512, 512)),
             Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ])
 
         datamodule = Folder(
             name="battery",
-            root=str(dataset_root),
+            root=str(base_path),
             normal_dir="train/good",
-            normal_test_dir="validation/good",
+            normal_test_dir="validation/good" if (base_path / "validation/good").exists() else None,
             abnormal_dir=abnormal_dirs if abnormal_dirs else None,
-            train_batch_size=32,
-            eval_batch_size=8,
-            num_workers=4,
+            train_batch_size=8,
+            eval_batch_size=4,
+            num_workers=effective_workers,
             augmentations=transform,
             seed=args.seed
         )
 
-        # ================== 3. 모델 및 콜백 설정 ==================== #
-        logger.info(f"🏗️ 모델 생성 중: FastFlow (Backbone: {args.backbone})")
-        
-        # [Fix] 픽셀 마스크가 없는 데이터이므로 image-level 메트릭만 사용
+        # --- 모델 + Evaluator ---
         image_auroc_val = AUROC(fields=["pred_score", "gt_label"], prefix="image_")
-
         image_auroc_test = AUROC(fields=["pred_score", "gt_label"], prefix="image_")
         image_f1_test = F1Score(fields=["pred_label", "gt_label"], prefix="image_")
 
@@ -137,88 +161,106 @@ def main():
             test_metrics=[image_auroc_test, image_f1_test],
         )
 
-        model = Fastflow(
+        model = Patchcore(
             backbone=args.backbone,
-            flow_steps=8,
+            pre_trained=True,
+            layers=["layer2", "layer3"],
+            coreset_sampling_ratio=args.coreset_sampling_ratio,
+            num_neighbors=args.num_neighbors,
             evaluator=evaluator,
         )
-        
-        # Note: 하이퍼파라미터(LR, Weight Decay)는 필요한 경우 Engine 설정을 통해 주입할 수 있습니다.
-        
-        # Early Stopping 설정: image_AUROC를 모니터링하여 과적합 방지
-        early_stop = EarlyStopping(
-            monitor="image_AUROC", 
-            patience=5, 
-            mode="max",
-            verbose=True
-        )
 
-        mlflow_logger = AnomalibMLFlowLogger(experiment_name="Battery_Anomaly", save_dir=str(OUTPUT_DIR))
+        # --- MLflow Logger ---
+        mlflow_logger = None
+        if is_main_process:
+            try:
+                mlflow_logger = AnomalibMLFlowLogger(
+                    experiment_name="Battery_Anomaly_PatchCore",
+                    save_dir=str(OUTPUT_DIR)
+                )
+            except Exception:
+                pass
 
+        # --- Engine ---
         engine = Engine(
             max_epochs=args.epochs,
-            accelerator="auto",
-            devices=1,
+            accelerator=accelerator,
+            devices=use_devices,
+            strategy=strategy,
             default_root_dir=str(OUTPUT_DIR),
             logger=mlflow_logger,
-            callbacks=[early_stop],
-            gradient_clip_val=1.0 # Lightning 공식 지원 인자
         )
 
-        # ================== 4. 학습 및 저장 ==================== #
-        logger.info(f" Training started (Seed: {args.seed})...")
+        # --- 학습 ---
+        t0 = time.time()
+        logger.info("Training started...")
         engine.fit(model=model, datamodule=datamodule)
-        
-        # [Threshold Finalization] 테스트를 수행하여 최적의 임계값(Threshold)을 확정하고 로그에 기록합니다.
-        logger.info(" Finalizing threshold and calculating metrics...")
-        engine.test(model=model, datamodule=datamodule)
-        
-        # 최적 임계값 로깅
-        if hasattr(model, "image_threshold"):
-            logger.info(f" Calculated Image Threshold: {model.image_threshold.value.item():.4f}")
-        # pixel_threshold는 pixel 메트릭 미사용 시 존재하지 않으므로 생략
+        elapsed = time.time() - t0
 
+        # --- Threshold 확정 + 메트릭 ---
+        logger.info("Finalizing threshold and calculating metrics...")
+        test_results = engine.test(model=model, datamodule=datamodule)
+        logger.info(f"Test results: {test_results}")
+
+        if hasattr(model, "image_threshold"):
+            threshold = model.image_threshold.value.item()
+            logger.info(f"  Image Threshold: {threshold:.4f}")
+
+        # --- 모델 저장 ---
         ckpt_path = OUTPUT_DIR / "model.ckpt"
         engine.trainer.save_checkpoint(ckpt_path)
-        
-        # [Library Fix] TorchInferencer와 100% 호환되는 표준 추론 에셋 생성
-        # 단순 가중치 저장보다 engine.export()가 Anomalib의 표준 추론 방식입니다.
-        logger.info(" 📦 Exporting standard model for inference (including metadata)...")
-        exported_model_path = engine.export(
-            model=model,
-            export_type="torch",
-            export_root=str(OUTPUT_DIR)
-        )
-        logger.success(f" ✅ Model exported to: {exported_model_path}")
-        
-        # 백업용 수동 저장
+        logger.info(f"  Checkpoint saved: {ckpt_path}")
+
+        # TorchInferencer 호환 모델 export
+        logger.info("Exporting model for inference...")
+        try:
+            exported_model_path = engine.export(
+                model=model,
+                export_type="torch",
+                export_root=str(OUTPUT_DIR)
+            )
+            logger.info(f"  Exported: {exported_model_path}")
+        except Exception as e:
+            logger.warning(f"  Export failed (checkpoint still available): {e}")
+
+        # 백업용 state_dict
         torch.save(model.state_dict(), OUTPUT_DIR / "model_weights.pt")
 
-        if torch.cuda.is_available():
-            gpu_name = torch.cuda.get_device_name(0)
-            mlflow.log_param("gpu_name", gpu_name)
+        logger.info(f"Training complete in {elapsed:.0f}s")
 
-        # ================== 5. 결과 기록 ==================== #
+        # --- 결과 기록 ---
         info = {
+            "model": "patchcore",
             "backbone": args.backbone,
+            "layers": ["layer2", "layer3"],
+            "coreset_sampling_ratio": args.coreset_sampling_ratio,
+            "num_neighbors": args.num_neighbors,
             "seed": args.seed,
             "epochs": args.epochs,
+            "image_size": [512, 512],
+            "num_gpus": world_size,
+            "strategy": strategy,
+            "training_time_sec": elapsed,
             "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
         }
-        with open(OUTPUT_DIR / "info.json", 'w', encoding='utf-8') as f:
+        if hasattr(model, "image_threshold"):
+            info["image_threshold"] = model.image_threshold.value.item()
+
+        with open(OUTPUT_DIR / "training_info.json", "w", encoding="utf-8") as f:
             json.dump(info, f, indent=2, ensure_ascii=False)
 
-        mlflow.log_params(info)
-        mlflow.log_artifact(str(OUTPUT_DIR))
-        logger.success(" 모든 프로세스가 성공적으로 완료되었습니다.")
+        if mlflow_active:
+            mlflow.log_metrics({"training_time_sec": elapsed})
+            mlflow.log_artifact(str(OUTPUT_DIR))
+        logger.success("All outputs saved successfully.")
 
     except Exception as e:
-        logger.error(f" 학습 중 오류 발생: {e}")
+        logger.error(f"Training failed: {e}")
         raise
     finally:
-        mlflow.end_run()
+        if mlflow_active:
+            mlflow.end_run()
+
 
 if __name__ == "__main__":
     main()
-
-# success plz

@@ -135,6 +135,11 @@ def run_inference(data_path, model_path, output_dir, skip_preprocess=False):
                     if amap.ndim == 3:  # (1, H, W)
                         amap = amap.squeeze(0)
 
+                    # Save raw anomaly map (.npy) for downstream analysis
+                    raw_dir = cat_output / "anomaly_maps_raw"
+                    raw_dir.mkdir(parents=True, exist_ok=True)
+                    np.save(str(raw_dir / f"{img_path.stem}.npy"), amap)
+
                     # Normalize to 0-255
                     min_val, max_val = amap.min(), amap.max()
                     if max_val - min_val > 0:

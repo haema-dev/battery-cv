@@ -1,15 +1,15 @@
 $schema: https://azuremlschemas.azureedge.net/latest/pipelineJob.schema.json
 type: pipeline
-display_name: "Battery_Anomaly_Detection_Full_Pipeline_Split"
-experiment_name: Battery_S1_EndToEnd_Split
+display_name: "Battery_PatchCore_Detection_Pipeline"
+experiment_name: Battery_S1_PatchCore
 
 inputs:
   train_data:
     type: uri_folder
-    path: azureml:battery_data_1@latest # 학습용 원본 데이터 에셋
+    path: azureml:battery_data_1@latest
   test_data:
     type: uri_folder
-    path: azureml:test_data@latest          # 테스트용 원본 데이터 에셋
+    path: azureml:test_data@latest
 
 outputs:
   pipeline_output:
@@ -24,8 +24,8 @@ jobs:
     type: command
     code: src/preprocess
     command: >-
-      python preprocess_entry.py 
-      --data_path ${{inputs.data_path}} 
+      python preprocess_entry.py
+      --data_path ${{inputs.data_path}}
       --output_path ${{outputs.preprocessed_data}}
     inputs:
       data_path: ${{parent.inputs.train_data}}
@@ -40,57 +40,66 @@ jobs:
     type: command
     code: src/preprocess
     command: >-
-      python preprocess_entry.py 
-      --data_path ${{inputs.data_path}} 
+      python preprocess_entry.py
+      --data_path ${{inputs.data_path}}
       --output_path ${{outputs.preprocessed_data}}
     inputs:
-      data_path: 
-        type: uri_folder # [Infrastructure Fix] Explicitly set type to uri_folder
+      data_path:
+        type: uri_folder
         path: ${{parent.inputs.test_data}}
     outputs:
       preprocessed_data:
         type: uri_folder
-        mode: mount # [Infrastructure Fix] Remove rw_mount to prevent lock conflicts
+        mode: mount
     compute: azureml:cpu-standard
     environment: azureml:env-yolo@latest
 
-  # 2단계: 학습 (전처리된 학습 데이터 사용)
+  # 2단계: PatchCore 학습 (DDP 4GPU - classification에서 검증된 설정)
   train_step:
     type: command
     code: src/train
     command: >-
-      python index.py 
-      --data_path ${{inputs.data_path}} 
+      python index.py
+      --data_path ${{inputs.data_path}}
       --output_dir ${{outputs.model_output}}
-      --epochs 50
-      --backbone resnet18
+      --epochs 1
+      --backbone wide_resnet50_2
       --seed 42
+      --coreset_sampling_ratio 0.1
+      --num_neighbors 9
+      --num_workers 2
     inputs:
-      data_path: 
-        type: uri_folder # [Infrastructure Fix] Ensure input from previous step is treated as a folder
+      data_path:
+        type: uri_folder
         path: ${{parent.jobs.preprocess_train_step.outputs.preprocessed_data}}
     outputs:
       model_output:
         type: uri_folder
-        mode: mount # [Infrastructure Fix] Remove rw_mount to prevent lock conflicts
+        mode: mount
     compute: azureml:gpu-advanced
     environment: azureml:env-yolo@latest
+    distribution:
+      type: PyTorch
+      process_count_per_instance: 4
+    resources:
+      instance_count: 1
+      shm_size: "16g"
 
-  # 3단계: 추론 (전처리된 테스트 데이터 + 학습된 모델 사용)
+  # 3단계: 추론 (heatmap + raw anomaly map .npy 생성)
   inference_step:
     type: command
     code: src/inference
     command: >-
-      python inference.py 
-      --data_path ${{inputs.data_path}} 
+      python inference.py
+      --data_path ${{inputs.data_path}}
       --model_path ${{inputs.model_path}}
       --output_dir ${{outputs.inference_results}}
       --skip_preprocess
     inputs:
-      data_path: 
+      data_path:
         type: uri_folder
         path: ${{parent.jobs.preprocess_test_step.outputs.preprocessed_data}}
-      model_path: 
+      model_path:
         type: uri_folder
         path: ${{parent.jobs.train_step.outputs.model_output}}
     outputs:

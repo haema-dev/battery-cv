@@ -214,8 +214,8 @@ def main():
     parser.add_argument("--patience",     type=int,   default=15,
                         help="EarlyStopping patience")
     parser.add_argument("--seed",         type=int,   default=42)
-    parser.add_argument("--precision",    type=str,   default="16-mixed",
-                        help="T4 GPU FP16 혼합 정밀도 – 속도 2x, 메모리↓")
+    parser.add_argument("--precision",    type=str,   default="32",
+                        help="추론 기본값 32(FP32). 학습 시 train-job.yml에서 16-mixed 지정")
     parser.add_argument("--threshold",    type=float, default=None,
                         help="예측 임계값 수동 지정 (미지정 시 모델 저장값 사용)")
 
@@ -484,9 +484,15 @@ def main():
             for batch in (predictions or []):
                 paths, images, amaps, scores, labels = parse_batch(batch)
 
+                nan_count = 0
                 for i in range(len(paths)):
                     path  = paths[i]
                     score = float(scores[i]) if i < len(scores) else 0.0
+
+                    # NaN/Inf guard: FP16 수치 불안정 시 발생 가능
+                    if not np.isfinite(score):
+                        nan_count += 1
+                        score = 0.0   # 안전값으로 대체 (정상 스코어 0)
 
                     # pred_label 우선, 없으면 임계값으로 직접 판정
                     if i < len(labels):
@@ -534,6 +540,12 @@ def main():
                         "is_defect":     pred_label,
                         "vis_path":      vis_path_str,
                     })
+
+            if nan_count:
+                logger.warning(
+                    f"NaN/Inf score {nan_count}개 감지됨 → 0.0으로 대체. "
+                    f"FP16 수치 불안정 가능성 – inference-job.yml에서 --precision 32 확인 권장."
+                )
 
             if not records:
                 logger.warning("예측 결과가 없습니다. 데이터 경로와 모델을 확인하세요.")

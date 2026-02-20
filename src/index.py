@@ -387,7 +387,8 @@ def main():
                 loader = torch.utils.data.DataLoader(
                     pred_dataset, batch_size=args.batch_size,
                     shuffle=False, num_workers=4, pin_memory=True,
-                    persistent_workers=True,   # ro_mount: epoch간 worker 재생성 방지
+                    persistent_workers=True,            # ro_mount: epoch간 worker 재생성 방지
+                    collate_fn=pred_dataset.collate_fn, # ImageItem → ImageBatch (anomalib 2.2.0 v태그 확인)
                 )
                 logger.info(f"PredictDataset 경로: {predict_dir} ({len(pred_dataset)} 이미지)")
             except Exception as e:

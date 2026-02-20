@@ -1,0 +1,42 @@
+name: Check Azure ML Datasets
+on:
+  workflow_dispatch:  # 수동 실행 전용
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Install Azure ML CLI
+        run: az extension add -n ml --yes
+
+      - name: Configure Azure ML
+        run: |
+          az configure --defaults \
+            group=${{ secrets.AZURE_RESOURCE_GROUP }} \
+            workspace=${{ secrets.AZURE_WORKSPACE }}
+
+      - name: List All Datasets
+        run: |
+          echo "=== 등록된 데이터셋 목록 ==="
+          az ml data list \
+            --query "[].{name:name, latestVersion:latestVersion}" \
+            -o table
+
+      - name: Show battery-data-unzip details
+        run: |
+          echo "=== battery-data-unzip 상세 ==="
+          az ml data show --name battery-data-unzip \
+            --query "{name:name, version:version, path:path, type:type}" \
+            -o json 2>/dev/null || echo "battery-data-unzip 없음"
+
+      - name: Show battery_data_256_256 details
+        run: |
+          echo "=== battery_data_256_256 상세 ==="
+          az ml data show --name battery_data_256_256 \
+            --query "{name:name, version:version, path:path, type:type}" \
+            -o json 2>/dev/null || echo "battery_data_256_256 없음"

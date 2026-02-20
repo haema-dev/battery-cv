@@ -207,9 +207,10 @@ class FastflowCompat(Fastflow):
                 amap = None
 
             if amap is not None:
-                # (B, 1, H, W) 또는 (B, H, W) → (B,) 최대값
+                # anomaly_map = log p(x) per pixel (음수: 정상≈0, 불량≪0)
+                # max → 항상 ≈0 (구별 불가), mean → 불량일수록 더 음수 (구별 가능)
                 flat = amap.reshape(amap.shape[0], -1)
-                img_score = flat.max(dim=-1).values   # raw log-likelihood max
+                img_score = flat.mean(dim=-1)   # per-image mean log-likelihood
 
                 # pred_mask: VisualizerCallback이 None이면 crash하므로 dummy 제공
                 # (B, H, W) float tensor
@@ -248,6 +249,36 @@ class FastflowCompat(Fastflow):
             )
 
         return super().predict_step(batch, batch_idx)
+
+
+import lightning.pytorch as _pl_mod
+
+class _DisableVisualizerAtStart(_pl_mod.Callback):
+    """prediction 시작 시 anomalib VisualizerCallback을 안전하게 제거.
+
+    anomalib Engine이 자동 등록하는 VisualizerCallback은 pred_mask 등
+    특정 필드가 없으면 crash한다. on_predict_start 시점에는 모든 콜백이
+    이미 등록되어 있으므로 여기서 제거하면 확실하게 비활성화된다.
+    """
+
+    def on_predict_start(self, trainer, pl_module) -> None:
+        try:
+            import anomalib.callbacks.visualizer as _vm
+            vis_types = tuple(
+                obj for obj in vars(_vm).values()
+                if isinstance(obj, type)
+            )
+            before = len(trainer.callbacks)
+            trainer.callbacks = [
+                cb for cb in trainer.callbacks
+                if not isinstance(cb, vis_types)
+            ]
+            logger.info(
+                f"[_DisableVisualizerAtStart] VisualizerCallback 제거 완료: "
+                f"{before} → {len(trainer.callbacks)} 콜백"
+            )
+        except Exception as e:
+            logger.debug(f"[_DisableVisualizerAtStart] 제거 시도 실패 (무시): {e}")
 
 
 # ────────────────────────────────────────────────
@@ -461,6 +492,10 @@ def main():
 
         # ── 콜백 구성 ────────────────────────────────
         callbacks = []
+        if args.mode == "prediction":
+            # prediction 시작 시 anomalib VisualizerCallback을 제거
+            # (클래스명 무관하게 anomalib.callbacks.visualizer 모듈의 모든 클래스 제거)
+            callbacks.append(_DisableVisualizerAtStart())
         if args.mode == "training":
             callbacks.append(EarlyStopping(
                 monitor="image_AUROC",
@@ -512,23 +547,6 @@ def main():
         elif args.mode == "prediction":
             logger.info("전수검사(Prediction) 시작")
 
-            # anomalib 2.x Engine이 VisualizerCallback을 자동 등록하는데,
-            # 우리 predict_step 반환 dict에 pred_mask 등이 없으면 crash.
-            # trainer가 생성되기 전에는 callbacks 접근 불가 → setup 후 제거.
-            try:
-                from anomalib.callbacks.visualizer import Visualizer as AnomalibVis
-                _trainer = engine.trainer
-                before = len(_trainer.callbacks)
-                _trainer.callbacks = [
-                    cb for cb in _trainer.callbacks
-                    if not isinstance(cb, AnomalibVis)
-                ]
-                logger.info(
-                    f"VisualizerCallback 제거: {before} → {len(_trainer.callbacks)} 콜백"
-                )
-            except Exception as _ve:
-                logger.debug(f"VisualizerCallback 제거 시도 실패 (무시): {_ve}")
-
             if loader is not None:
                 predictions = engine.predict(
                     model=model, dataloaders=loader, ckpt_path=ckpt_path
@@ -573,25 +591,21 @@ def main():
                 for i in range(len(paths)):
                     path = paths[i]
 
-                    # ── Raw score: anomaly_map.max() 우선 사용 ──────────────
-                    # pred_score(anomalib 2.x)는 post_processor 정규화 통계가
-                    # 없으면 0.0 고정 → AUROC=0.5, 모두 정상 오분류 발생.
-                    # anomaly_map의 max는 정규화를 거치지 않은 raw score이므로
-                    # anomalib 1.x state_dict의 raw threshold와 직접 비교 가능.
-                    if amaps is not None and i < len(amaps):
+                    # ── Raw score 추출 ────────────────────────────────────
+                    # anomaly_map = log p(x): 정상≈0, 불량≪0 (음수 log-likelihood)
+                    # pred_score: predict_step에서 mean(anomaly_map)으로 미리 계산됨
+                    # 우선순위: pred_score(pre-computed mean) > anomaly_map.mean()
+                    if i < len(scores) and np.isfinite(scores[i]):
+                        score = float(scores[i])
+                    elif amaps is not None and i < len(amaps):
                         amap_i = amaps[i]
                         amap_np = amap_i.cpu().numpy() if hasattr(amap_i, "cpu") else np.asarray(amap_i)
                         amap_np = amap_np.squeeze()
-                        raw_score = float(np.nanmax(amap_np))
+                        raw_score = float(np.nanmean(amap_np))   # mean (max은 항상 ≈0)
                         if not np.isfinite(raw_score):
                             nan_count += 1
                             raw_score = 0.0
                         score = raw_score
-                    elif i < len(scores):
-                        score = float(scores[i])
-                        if not np.isfinite(score):
-                            nan_count += 1
-                            score = 0.0
                     else:
                         score = 0.0
 
@@ -603,15 +617,15 @@ def main():
                         )
                         score_log_n += 1
 
-                    # ── 판정: custom threshold 우선, 없으면 모델 pred_label ──
-                    # 모델의 pred_label은 정규화 통계 없이 default threshold 0.5 기준이라
-                    # saved_thresh가 있으면 반드시 우리 threshold를 사용한다.
+                    # ── 판정 (score = mean log-likelihood, 음수) ──────────
+                    # anomalib 1.x 저장 threshold(-0.441)는 raw log-likelihood 공간.
+                    # 정상: score > threshold (덜 음수), 불량: score < threshold (더 음수)
                     if decision_threshold is not None:
-                        pred_label = score > decision_threshold
+                        pred_label = score < decision_threshold
                     elif i < len(labels):
                         pred_label = bool(labels[i])
                     else:
-                        pred_label = score > 0.5
+                        pred_label = score < -0.5   # fallback: 음수 방향
 
                     parent_dir = Path(path).parent.name
                     # 폴더명으로 정답 라벨 추정: good → 0(정상), 그 외 → 1(불량)

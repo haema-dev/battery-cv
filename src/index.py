@@ -151,7 +151,24 @@ class FastflowCompat(Fastflow):
     Lightning은 on_load_checkpoint 외에 strategy.load_model_state_dict를
     통해 load_state_dict를 별도로 strict=True로 호출한다.
     따라서 load_state_dict 자체를 재정의해야 구버전 키 오류를 막을 수 있다.
+
+    추가 변경:
+    - configure_optimizers: wide_resnet50_2 권장 LR(1e-4) 적용.
+      anomalib 기본값 1e-3은 normalizing flow + FP16 조합에서 loss 폭발 위험.
     """
+
+    def configure_optimizers(self):
+        """wide_resnet50_2 + FP16 권장 LR(1e-4)으로 Adam 재정의.
+
+        FastFlow 논문(Yu et al., 2021) 권장: wide_resnet50_2는 1e-4,
+        resnet18은 2e-4. anomalib 기본값 1e-3은 FP16 학습 시 불안정.
+        """
+        import torch.optim as optim
+        # Flow 블록 파라미터만 학습 (backbone은 frozen)
+        flow_params = self.model.fast_flow_blocks.parameters()
+        optimizer = optim.Adam(flow_params, lr=1e-4, weight_decay=1e-5)
+        logger.info("Optimizer: Adam lr=1e-4 weight_decay=1e-5 (FastFlow 논문 권장값)")
+        return optimizer
 
     def on_load_checkpoint(self, checkpoint: dict) -> None:
         # eval_transform 복구 (anomalib 2.x 필수)
@@ -369,6 +386,7 @@ def main():
                 loader = torch.utils.data.DataLoader(
                     pred_dataset, batch_size=args.batch_size,
                     shuffle=False, num_workers=4, pin_memory=True,
+                    persistent_workers=True,   # ro_mount: epoch간 worker 재생성 방지
                 )
                 logger.info(f"PredictDataset 경로: {predict_dir} ({len(pred_dataset)} 이미지)")
             except Exception as e:
@@ -522,6 +540,12 @@ def main():
         # _visualize_full에서 pred_mask is None 체크가 SEGMENTATION 전용이라
         # CLASSIFICATION으로 설정하면 해당 체크 자체가 실행되지 않음.
         _engine_task = "classification" if args.mode == "prediction" else "segmentation"
+
+        # gradient_clip_val=1.0: Normalizing Flow + FP16 학습 시 gradient 폭발 방지.
+        # FastFlow 논문 및 FrEIA 커뮤니티 권장. wide_resnet50_2 + flow_steps=16 조합에서
+        # clip 없으면 초기 수십 epoch에 loss → -inf 발생 위험.
+        # anomalib Engine은 **kwargs를 Lightning Trainer에 전달함.
+        _clip = 1.0 if args.mode == "training" else None
         engine = Engine(
             task=_engine_task,
             max_epochs=args.epochs,
@@ -531,6 +555,8 @@ def main():
             logger=mlflow_logger,
             callbacks=callbacks,
             default_root_dir=str(OUTPUT_DIR),
+            **({"gradient_clip_val": _clip, "gradient_clip_algorithm": "norm"}
+               if _clip is not None else {}),
         )
 
         # ══════════════════════════════════════════════

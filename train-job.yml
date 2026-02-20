@@ -3,6 +3,10 @@ type: command
 code: src/
 
 # ★ 최고 성능 설정: wide_resnet50_2 + flow_steps=16 + FP16
+# 안정성 패치 (2026-02-20):
+#   - gradient_clip_val=1.0: index.py Engine에서 자동 적용 (loss 폭발 방지)
+#   - LR=1e-4: FastflowCompat.configure_optimizers 재정의 (논문 권장값)
+#   - epochs=300 + patience=20: wide_resnet50_2 충분한 수렴 보장
 command: >-
   python index.py
     --data_path   ${{inputs.data}}
@@ -11,28 +15,25 @@ command: >-
     --backbone    wide_resnet50_2
     --flow_steps  16
     --image_size  256
-    --epochs      100
+    --epochs      300
     --batch_size  16
-    --patience    15
+    --patience    20
     --precision   16-mixed
     --seed        42
 
 inputs:
   data:
     type: uri_folder
-    path: azureml:battery_exterior_zip:4
+    path: azureml:battery_data_256_256@latest
     mode: ro_mount
 
 outputs:
   outputs:
     type: uri_folder
-    # Job 완료 후 자동 업로드
     mode: rw_mount
 
 compute: azureml:gpu-t4
 environment: azureml:env-yolo:21
 
-# Job 실험명과 task 명 지정. 미기재 해도 됨.
-# experiment_name은 공백 비허용, display_name는 따옴표 필수
 experiment_name: Battery_FastFlow_v2
-display_name: "FastFlow wide_resnet50_2 flow16 FP16"
+display_name: "FastFlow wide_resnet50_2 flow16 FP16 v2-stable"

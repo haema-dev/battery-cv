@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 from loguru import logger
 
+from anomalib import TaskType
 from anomalib.models import Fastflow
 from anomalib.data import Folder
 from anomalib.engine import Engine
@@ -535,19 +536,21 @@ def main():
             save_dir=str(OUTPUT_DIR),
         )
 
-        # ── Engine ───────────────────────────────────
-        # prediction 모드: task=classification → VisualizerCallback의
-        # _visualize_full에서 pred_mask is None 체크가 SEGMENTATION 전용이라
-        # CLASSIFICATION으로 설정하면 해당 체크 자체가 실행되지 않음.
-        _engine_task = "classification" if args.mode == "prediction" else "segmentation"
+        # ── task 설정 ────────────────────────────────
+        # anomalib 2.2.0: Engine.__init__은 callbacks/logger만 직접 처리하고
+        # 나머지 **kwargs는 Lightning Trainer로 전달됨. 'task'는 Trainer가 모르는
+        # 인자이므로 Engine(task=...) 대신 model.task에 직접 설정해야 함.
+        # prediction 모드: CLASSIFICATION → VisualizerCallback pred_mask 체크 회피
+        model.task = (TaskType.CLASSIFICATION if args.mode == "prediction"
+                      else TaskType.SEGMENTATION)
 
+        # ── Engine ───────────────────────────────────
         # gradient_clip_val=1.0: Normalizing Flow + FP16 학습 시 gradient 폭발 방지.
         # FastFlow 논문 및 FrEIA 커뮤니티 권장. wide_resnet50_2 + flow_steps=16 조합에서
         # clip 없으면 초기 수십 epoch에 loss → -inf 발생 위험.
         # anomalib Engine은 **kwargs를 Lightning Trainer에 전달함.
         _clip = 1.0 if args.mode == "training" else None
         engine = Engine(
-            task=_engine_task,
             max_epochs=args.epochs,
             devices=1,
             accelerator="auto",

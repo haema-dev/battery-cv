@@ -43,11 +43,14 @@ def set_seed(seed: int) -> None:
 def parse_batch(batch):
     """anomalib 1.x(dict) 및 2.x(ImageBatch object) 모두 호환"""
     if isinstance(batch, dict):
-        paths       = batch.get("image_path", [])
-        images      = batch.get("image")
-        amaps       = batch.get("anomaly_map") or batch.get("anomaly_maps")
-        scores_t    = batch.get("pred_score")  or batch.get("pred_scores")
-        labels_t    = batch.get("pred_label")  or batch.get("pred_labels")
+        paths    = batch.get("image_path", [])
+        images   = batch.get("image")
+        _am      = batch.get("anomaly_map")
+        amaps    = _am if _am is not None else batch.get("anomaly_maps")
+        _ps      = batch.get("pred_score")
+        scores_t = _ps if _ps is not None else batch.get("pred_scores")
+        _pl      = batch.get("pred_label")
+        labels_t = _pl if _pl is not None else batch.get("pred_labels")
     else:
         paths    = getattr(batch, "image_path", [])
         images   = getattr(batch, "image", None)
@@ -181,6 +184,60 @@ class FastflowCompat(Fastflow):
         if unexpected:
             logger.debug(f"무시된 키 (앞 3개): {unexpected[:3]}")
         return result
+
+    def predict_step(self, batch, batch_idx):
+        """PostProcessor 정규화를 우회해 raw anomaly score 반환.
+
+        anomalib 2.x PostProcessor는 학습 통계(image_min/max)가 없으면
+        NaN 정규화 → 모든 점수 0.5로 고정된다.
+        self.model(images) (inner FastflowModel) 을 직접 호출해 raw 값을 가져온다.
+        """
+        try:
+            images = batch["image"] if isinstance(batch, dict) else batch.image
+            output = self.model(images)          # FastflowModel.forward()
+
+            # anomaly_map 추출 (InferenceResult / dict / Tensor 형태 대응)
+            if hasattr(output, "anomaly_map") and output.anomaly_map is not None:
+                amap = output.anomaly_map
+            elif isinstance(output, dict):
+                amap = output.get("anomaly_map") or output.get("anomaly_maps")
+            elif isinstance(output, torch.Tensor):
+                amap = output
+            else:
+                amap = None
+
+            if amap is not None:
+                # (B, 1, H, W) 또는 (B, H, W) → (B,) 최대값
+                flat = amap.reshape(amap.shape[0], -1)
+                img_score = flat.max(dim=-1).values   # raw log-likelihood max
+
+                # 경로 추출 (batch 타입 무관)
+                if isinstance(batch, dict):
+                    paths_out = batch.get("image_path", [])
+                    img_out   = batch.get("image")
+                else:
+                    paths_out = getattr(batch, "image_path", [])
+                    img_out   = getattr(batch, "image", None)
+
+                logger.info(
+                    f"[raw predict_step] batch={batch_idx} "
+                    f"score_range=[{img_score.min():.4f}, {img_score.max():.4f}]"
+                )
+                # dict 반환 → parse_batch의 dict 분기로 안전하게 처리
+                return {
+                    "image_path":  paths_out,
+                    "image":       img_out,
+                    "anomaly_map": amap,
+                    "pred_score":  img_score,
+                    "pred_label":  None,
+                }
+
+        except Exception as e:
+            logger.warning(
+                f"Raw predict_step 실패 ({type(e).__name__}: {e}) → 표준 예측으로 대체"
+            )
+
+        return super().predict_step(batch, batch_idx)
 
 
 # ────────────────────────────────────────────────

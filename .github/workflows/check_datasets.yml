@@ -1,6 +1,9 @@
 name: Check Azure ML Datasets
 on:
-  workflow_dispatch:  # 수동 실행 전용
+  workflow_dispatch:
+  push:
+    branches:
+      - tk_test_6
 
 jobs:
   check:

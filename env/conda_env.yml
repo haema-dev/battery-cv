@@ -4,7 +4,7 @@ channels:
   - pytorch
   - nvidia
 dependencies:
-  - python=3.10
+  - python=3.11
   - pip  # (1) pip 도구 자체를 먼저 설치
   - pip: # (2) 이제 pip로 설치할 패키지 목록 시작
     - opencv-python-headless>=4.5.3.56  # <-- 여기로 합치세요!
@@ -16,7 +16,7 @@ dependencies:
     - docstring_parser
     - rich_argparse
     - lightning>=2.2.0
-    - torchmetrics>=1.1.0
+    - torchmetrics>=1.8.2
     - lightning-utilities
     - timm
     - freia>=0.2
@@ -30,7 +30,6 @@ dependencies:
     - pandas>=1.1.0
     - matplotlib>=3.4.3
     - scikit-learn
-    - imgaug
     - anomalib==2.2.0
     - openvino>=2024.0
     - nncf>=2.10.0

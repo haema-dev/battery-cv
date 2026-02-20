@@ -262,23 +262,16 @@ class _DisableVisualizerAtStart(_pl_mod.Callback):
     """
 
     def on_predict_start(self, trainer, pl_module) -> None:
-        try:
-            import anomalib.callbacks.visualizer as _vm
-            vis_types = tuple(
-                obj for obj in vars(_vm).values()
-                if isinstance(obj, type)
-            )
-            before = len(trainer.callbacks)
-            trainer.callbacks = [
-                cb for cb in trainer.callbacks
-                if not isinstance(cb, vis_types)
-            ]
-            logger.info(
-                f"[_DisableVisualizerAtStart] VisualizerCallback 제거 완료: "
-                f"{before} → {len(trainer.callbacks)} 콜백"
-            )
-        except Exception as e:
-            logger.debug(f"[_DisableVisualizerAtStart] 제거 시도 실패 (무시): {e}")
+        # isinstance 대신 모듈명 비교 → typing.Any 등 non-class 객체 문제 없음
+        before = len(trainer.callbacks)
+        trainer.callbacks = [
+            cb for cb in trainer.callbacks
+            if not getattr(type(cb), "__module__", "").startswith("anomalib.callbacks")
+        ]
+        logger.info(
+            f"[_DisableVisualizerAtStart] anomalib 콜백 제거: "
+            f"{before} → {len(trainer.callbacks)} 콜백"
+        )
 
 
 # ────────────────────────────────────────────────
@@ -519,7 +512,12 @@ def main():
         )
 
         # ── Engine ───────────────────────────────────
+        # prediction 모드: task=classification → VisualizerCallback의
+        # _visualize_full에서 pred_mask is None 체크가 SEGMENTATION 전용이라
+        # CLASSIFICATION으로 설정하면 해당 체크 자체가 실행되지 않음.
+        _engine_task = "classification" if args.mode == "prediction" else "segmentation"
         engine = Engine(
+            task=_engine_task,
             max_epochs=args.epochs,
             devices=1,
             accelerator="auto",

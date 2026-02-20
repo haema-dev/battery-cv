@@ -272,19 +272,28 @@ class FastflowCompat(Fastflow):
 import lightning.pytorch as _pl_mod
 
 class _DisableVisualizerAtStart(_pl_mod.Callback):
-    """prediction 시작 시 anomalib VisualizerCallback을 안전하게 제거.
+    """prediction 시작 시 anomalib 자동 콜백을 안전하게 제거.
 
-    anomalib Engine이 자동 등록하는 VisualizerCallback은 pred_mask 등
-    특정 필드가 없으면 crash한다. on_predict_start 시점에는 모든 콜백이
-    이미 등록되어 있으므로 여기서 제거하면 확실하게 비활성화된다.
+    제거 대상 (anomalib v2.2.0 소스 확인):
+      1. anomalib.callbacks.*   - VisualizerCallback: pred_mask 없으면 crash
+      2. anomalib.post_processing.* - PostProcessor(Callback):
+           on_predict_batch_end → outputs.anomaly_map 속성 접근.
+           predict_step이 dict 반환 시 AttributeError 발생.
+           또한 저장된 min/max 통계가 1.x 스케일(sum)이라 2.x(mean) 점수를
+           잘못 정규화함 → 제거하고 main()에서 raw score 직접 임계값 판정.
     """
 
+    # anomalib v2.2.0: 제거할 콜백 모듈 prefix
+    _ANOMALIB_CB_MODULES = ("anomalib.callbacks", "anomalib.post_processing")
+
     def on_predict_start(self, trainer, pl_module) -> None:
-        # isinstance 대신 모듈명 비교 → typing.Any 등 non-class 객체 문제 없음
         before = len(trainer.callbacks)
         trainer.callbacks = [
             cb for cb in trainer.callbacks
-            if not getattr(type(cb), "__module__", "").startswith("anomalib.callbacks")
+            if not any(
+                getattr(type(cb), "__module__", "").startswith(m)
+                for m in self._ANOMALIB_CB_MODULES
+            )
         ]
         logger.info(
             f"[_DisableVisualizerAtStart] anomalib 콜백 제거: "

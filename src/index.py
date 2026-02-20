@@ -211,17 +211,25 @@ class FastflowCompat(Fastflow):
                 flat = amap.reshape(amap.shape[0], -1)
                 img_score = flat.max(dim=-1).values   # raw log-likelihood max
 
-                # 경로 추출 (batch 타입 무관)
+                # pred_mask: VisualizerCallback이 None이면 crash하므로 dummy 제공
+                # (B, H, W) float tensor
+                amap_2d   = amap.squeeze(1) if amap.dim() == 4 else amap
+                pred_mask = torch.zeros_like(amap_2d)   # all-zero (시각화용 placeholder)
+
+                # gt_label: 경로에서 추출 (good→0, else→1)
                 if isinstance(batch, dict):
-                    paths_out = batch.get("image_path", [])
-                    img_out   = batch.get("image")
+                    paths_out  = batch.get("image_path", [])
+                    img_out    = batch.get("image")
+                    gt_label_t = batch.get("label")
                 else:
-                    paths_out = getattr(batch, "image_path", [])
-                    img_out   = getattr(batch, "image", None)
+                    paths_out  = getattr(batch, "image_path", [])
+                    img_out    = getattr(batch, "image", None)
+                    gt_label_t = getattr(batch, "label", None)
 
                 logger.info(
                     f"[raw predict_step] batch={batch_idx} "
-                    f"score_range=[{img_score.min():.4f}, {img_score.max():.4f}]"
+                    f"score_range=[{img_score.min():.8f}, {img_score.max():.8f}] "
+                    f"amap_mean={amap.mean():.8f}"
                 )
                 # dict 반환 → parse_batch의 dict 분기로 안전하게 처리
                 return {
@@ -230,6 +238,8 @@ class FastflowCompat(Fastflow):
                     "anomaly_map": amap,
                     "pred_score":  img_score,
                     "pred_label":  None,
+                    "pred_mask":   pred_mask,    # VisualizerCallback 필수 필드
+                    "label":       gt_label_t,
                 }
 
         except Exception as e:
@@ -501,6 +511,23 @@ def main():
 
         elif args.mode == "prediction":
             logger.info("전수검사(Prediction) 시작")
+
+            # anomalib 2.x Engine이 VisualizerCallback을 자동 등록하는데,
+            # 우리 predict_step 반환 dict에 pred_mask 등이 없으면 crash.
+            # trainer가 생성되기 전에는 callbacks 접근 불가 → setup 후 제거.
+            try:
+                from anomalib.callbacks.visualizer import Visualizer as AnomalibVis
+                _trainer = engine.trainer
+                before = len(_trainer.callbacks)
+                _trainer.callbacks = [
+                    cb for cb in _trainer.callbacks
+                    if not isinstance(cb, AnomalibVis)
+                ]
+                logger.info(
+                    f"VisualizerCallback 제거: {before} → {len(_trainer.callbacks)} 콜백"
+                )
+            except Exception as _ve:
+                logger.debug(f"VisualizerCallback 제거 시도 실패 (무시): {_ve}")
 
             if loader is not None:
                 predictions = engine.predict(

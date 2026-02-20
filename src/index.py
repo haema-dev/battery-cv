@@ -451,6 +451,12 @@ def main():
                         "--threshold 로 수동 지정하거나 0.5 fallback 사용."
                     )
 
+                # ── post_processor 진단 (스케일 파악용) ──────────────────
+                pp_diag = {k: float(v.item() if hasattr(v, "item") else v)
+                           for k, v in state_dict.items() if k.startswith("post_processor")}
+                if pp_diag:
+                    logger.info(f"[진단] post_processor 키/값: {pp_diag}")
+
         # ── FastFlow 모델 (자동 감지된 backbone/flow_steps 적용) ─────────────
         # FastflowCompat: on_load_checkpoint에서 strict=False + 구버전 키 필터링 처리
         model = FastflowCompat(
@@ -693,12 +699,32 @@ def main():
                 # ── 분류 지표 ──────────────────────────
                 metrics_log = {}
                 if has_gt:
+                    # ── 저장 임계값이 스케일 불일치 시 ROC 기반 최적 임계값 자동 계산 ──
+                    # anomalib 1.x(sum) vs 2.x(mean) 스케일 차이로 stored threshold가
+                    # 현재 score 범위 밖에 있을 수 있음 → Youden's J로 자동 보정.
+                    from sklearn.metrics import roc_curve as _roc_curve
+                    # 불량이 더 음수이므로 -y_score 기준 ROC (높을수록 불량)
+                    _fpr, _tpr, _thrs = _roc_curve(y_true, -y_score)
+                    _j_idx  = int(np.argmax(_tpr - _fpr))
+                    auto_thr = float(-_thrs[_j_idx])   # 원래 스케일로 복원
+                    score_min, score_max = float(y_score.min()), float(y_score.max())
+                    thr_in_range = score_min <= decision_threshold <= score_max if decision_threshold is not None else False
+
+                    if not thr_in_range:
+                        logger.warning(
+                            f"저장 임계값({decision_threshold:.6f})이 실제 점수 범위 "
+                            f"[{score_min:.6f}, {score_max:.6f}] 밖 → "
+                            f"Youden J 자동 임계값 {auto_thr:.6f} 로 재판정"
+                        )
+                        # 자동 임계값으로 pred 재계산
+                        y_pred = (y_score < auto_thr).astype(int)
+
                     acc  = accuracy_score(y_true, y_pred)
                     prec = precision_score(y_true, y_pred, zero_division=0)
                     rec  = recall_score(y_true, y_pred, zero_division=0)
                     f1   = f1_score(y_true, y_pred, zero_division=0)
                     try:
-                        auroc = roc_auc_score(y_true, y_score)
+                        auroc = roc_auc_score(y_true, -y_score)   # 부호 반전 (불량=더음수)
                     except Exception:
                         auroc = float("nan")
 

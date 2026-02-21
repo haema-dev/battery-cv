@@ -36,4 +36,4 @@ compute: azureml:gpu-t4
 environment: azureml:env-yolo:21
 
 experiment_name: Battery_FastFlow_v2
-display_name: "FastFlow wide_resnet50_2 flow16 FP16 v2-stable"
+display_name: "FastFlow wide_resnet50_2 flow16 FP16 v2-stable-r2"

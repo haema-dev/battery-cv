@@ -1,0 +1,69 @@
+name: 03_Train_FastFlow_v2
+on:
+  workflow_dispatch:
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Install Azure ML CLI
+        run: az extension add -n ml --yes
+
+      - name: Configure Azure ML
+        run: |
+          az configure --defaults \
+            group=${{ secrets.AZURE_RESOURCE_GROUP }} \
+            workspace=${{ secrets.AZURE_WORKSPACE }}
+
+      - name: Verify Dataset Exists
+        run: |
+          echo "=== 학습 데이터셋 확인 ==="
+          az ml data show --name battery_data_256_256 \
+            --query "{name:name, version:version, path:path}" \
+            -o json || { echo "❌ battery_data_256_256 없음 - 학습 중단"; exit 1; }
+
+      - name: Submit Training Job
+        run: |
+          echo "================================================================"
+          echo "  FastFlow v2 재학습 Job 제출"
+          echo "  Backbone   : wide_resnet50_2"
+          echo "  Flow Steps : 16"
+          echo "  Precision  : 16-mixed  (T4 BF16 미지원 → 16-mixed 필수)"
+          echo "  Epochs     : 300  /  patience=20"
+          echo "  Batch      : 16"
+          echo "  LR         : 1e-4  (configure_optimizers 재정의)"
+          echo "  Grad Clip  : 1.0   (loss 폭발 방지)"
+          echo "  Data       : battery_data_256_256@latest"
+          echo "  Compute    : gpu-t4"
+          echo "================================================================"
+
+          JOB_NAME=$(az ml job create \
+            --file train-job.yml \
+            --query name -o tsv)
+
+          echo ""
+          echo "✅ 학습 Job 제출 완료"
+          echo "   Job Name : $JOB_NAME"
+          echo "JOB_NAME=$JOB_NAME" >> $GITHUB_ENV
+
+      - name: Show Monitoring URL
+        run: |
+          STUDIO_URL=$(az ml job show --name "$JOB_NAME" \
+            --query "services.Studio.endpoint" -o tsv 2>/dev/null || echo "")
+
+          echo ""
+          echo "================================================================"
+          echo "  Azure ML Studio 모니터링 URL"
+          echo "  $STUDIO_URL"
+          echo "================================================================"
+          echo ""
+          echo "학습 완료 후 model.pt 가중치가 Job outputs에 저장됩니다."
+          echo "이후 inference-job.yml의 model 경로를 새 Job 이름으로 업데이트하세요."

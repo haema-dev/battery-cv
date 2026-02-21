@@ -23,6 +23,18 @@ jobs:
             group=${{ secrets.AZURE_RESOURCE_GROUP }} \
             workspace=${{ secrets.AZURE_WORKSPACE }}
 
+      - name: Show Current Azure Configuration
+        run: |
+          echo "=== 현재 연결된 Azure 환경 ==="
+          echo "--- Subscription ---"
+          az account show --query "{name:name, id:id}" -o json
+          echo "--- 설정된 기본값 ---"
+          az configure --list-defaults -o table
+          echo "--- Azure ML Workspace ---"
+          az ml workspace show \
+            --query "{name:name, resource_group:resource_group, location:location}" \
+            -o json
+
       - name: List All Datasets
         run: |
           echo "=== 등록된 데이터셋 목록 ==="

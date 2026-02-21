@@ -7,18 +7,18 @@ code: src/
 #   - gradient_clip_val=1.0: index.py Engine에서 자동 적용 (loss 폭발 방지)
 #   - LR=1e-4: FastflowCompat.configure_optimizers 재정의 (논문 권장값)
 #   - epochs=300 + patience=20: wide_resnet50_2 충분한 수렴 보장
-command: >-
-  python index.py
-    --data_path   ${{inputs.data}}
-    --output_dir  ${{outputs.outputs}}
-    --mode        training
-    --backbone    wide_resnet50_2
-    --flow_steps  16
-    --image_size  256
-    --epochs      300
-    --batch_size  16
-    --patience    20
-    --precision   16-mixed
+command: |
+  python index.py \
+    --data_path   ${{inputs.data}} \
+    --output_dir  ${{outputs.outputs}} \
+    --mode        training \
+    --backbone    wide_resnet50_2 \
+    --flow_steps  16 \
+    --image_size  256 \
+    --epochs      300 \
+    --batch_size  16 \
+    --patience    20 \
+    --precision   16-mixed \
     --seed        42
 
 inputs:

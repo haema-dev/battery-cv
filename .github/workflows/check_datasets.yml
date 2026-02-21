@@ -45,14 +45,14 @@ jobs:
       - name: Show battery_data_unzip details
         run: |
           echo "=== battery_data_unzip 상세 ==="
-          az ml data show --name battery_data_unzip \
+          az ml data show --name battery_data_unzip --label latest \
             --query "{name:name, version:version, path:path, type:type}" \
             -o json 2>/dev/null || echo "battery_data_unzip 없음"
 
       - name: Show battery_data_256_256 details
         run: |
           echo "=== battery_data_256_256 상세 ==="
-          az ml data show --name battery_data_256_256 \
+          az ml data show --name battery_data_256_256 --label latest \
             --query "{name:name, version:version, path:path, type:type}" \
             -o json 2>/dev/null || echo "battery_data_256_256 없음"
 

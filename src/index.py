@@ -550,8 +550,8 @@ def main():
         # anomalib 2.2.0: Engine.__init__은 callbacks/logger만 직접 처리하고
         # 나머지 **kwargs는 Lightning Trainer로 전달됨. 'task'는 Trainer가 모르는
         # 인자이므로 Engine(task=...) 대신 model.task에 직접 설정해야 함.
-        # prediction 모드: CLASSIFICATION → VisualizerCallback pred_mask 체크 회피
-        model.task = TaskType.CLASSIFICATION  # 항상 CLASSIFICATION: 픽셀 마스크 없음
+        # 데이터셋에 픽셀 마스크 없음 → 항상 CLASSIFICATION (image-level AUROC만 사용)
+        model.task = TaskType.CLASSIFICATION
 
         # ── Engine ───────────────────────────────────
         # gradient_clip_val=1.0: Normalizing Flow + FP16 학습 시 gradient 폭발 방지.

@@ -30,12 +30,12 @@ jobs:
             --query "[].{name:name, latestVersion:latestVersion}" \
             -o table
 
-      - name: Show battery-data-unzip details
+      - name: Show battery_data_unzip details
         run: |
-          echo "=== battery-data-unzip 상세 ==="
-          az ml data show --name battery-data-unzip \
+          echo "=== battery_data_unzip 상세 ==="
+          az ml data show --name battery_data_unzip \
             --query "{name:name, version:version, path:path, type:type}" \
-            -o json 2>/dev/null || echo "battery-data-unzip 없음"
+            -o json 2>/dev/null || echo "battery_data_unzip 없음"
 
       - name: Show battery_data_256_256 details
         run: |

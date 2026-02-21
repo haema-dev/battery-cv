@@ -1,6 +1,11 @@
 name: 03_Train_FastFlow_v2
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - tk_test_6
+    paths:
+      - 'train-job.yml'
 
 jobs:
   train:

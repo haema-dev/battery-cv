@@ -43,3 +43,49 @@ jobs:
           az ml data show --name battery_data_256_256 \
             --query "{name:name, version:version, path:path, type:type}" \
             -o json 2>/dev/null || echo "battery_data_256_256 없음"
+
+      - name: Count images per folder
+        env:
+          RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+        run: |
+          echo "=== 폴더별 이미지 개수 ==="
+
+          # Datastore 정보 (storage account, container)
+          STORE_NAME=$(az ml datastore show --name workspaceblobstore \
+            --query "account_name" -o tsv)
+          CONTAINER=$(az ml datastore show --name workspaceblobstore \
+            --query "container_name" -o tsv)
+          echo "Storage Account : $STORE_NAME"
+          echo "Container       : $CONTAINER"
+
+          # Storage Account Key (서비스 주체 인증으로 가져옴)
+          STORE_KEY=$(az storage account keys list \
+            --account-name "$STORE_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --query "[0].value" -o tsv)
+
+          # battery_data_unzip 데이터셋의 실제 blob prefix 추출
+          # 예: azureml://datastores/workspaceblobstore/paths/battery-data-unzip/datasets/256x256 fit/
+          DATA_URI=$(az ml data show --name battery_data_unzip \
+            --query "path" -o tsv 2>/dev/null || echo "")
+          echo "Dataset URI: $DATA_URI"
+
+          # azureml://datastores/<name>/paths/<prefix> → prefix 부분만 추출
+          BLOB_PREFIX=$(echo "$DATA_URI" | sed 's|azureml://datastores/[^/]*/paths/||')
+          echo "Blob Prefix : $BLOB_PREFIX"
+          echo ""
+
+          TOTAL=0
+          for FOLDER in "train/good" "validation/good" "validation/damaged" "validation/damaged_pollution" "validation/pollution"; do
+            COUNT=$(az storage blob list \
+              --account-name "$STORE_NAME" \
+              --container-name "$CONTAINER" \
+              --account-key "$STORE_KEY" \
+              --prefix "${BLOB_PREFIX}${FOLDER}/" \
+              --query "length([?ends_with(name,'.png')||ends_with(name,'.jpg')||ends_with(name,'.jpeg')])" \
+              -o tsv 2>/dev/null || echo "0")
+            printf "  %-45s %s 장\n" "$FOLDER" "$COUNT"
+            TOTAL=$((TOTAL + COUNT))
+          done
+          echo "---"
+          echo "  합계: $TOTAL 장"

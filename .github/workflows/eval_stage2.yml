@@ -1,10 +1,5 @@
 name: 02_Stage2_Evaluation_and_Heatmap
 on:
-  push:
-    branches:
-      - tk_test_4
-      - tk_test_5
-      - tk_test_6
   workflow_dispatch:
 
 jobs:

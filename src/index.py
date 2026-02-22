@@ -331,7 +331,14 @@ class _DisableVisualizerAtStart(_pl_mod.Callback):
     """
 
     # anomalib v2.2.0: 제거할 콜백 모듈 prefix
-    _ANOMALIB_CB_MODULES = ("anomalib.callbacks", "anomalib.post_processing")
+    # anomalib.pre_processing.PreProcessor: batch.image 속성 접근 →
+    # 커스텀 DataLoader가 plain dict 반환 시 AttributeError 발생.
+    # DataLoader가 이미 transform을 적용하므로 PreProcessor 불필요.
+    _ANOMALIB_CB_MODULES = (
+        "anomalib.callbacks",
+        "anomalib.post_processing",
+        "anomalib.pre_processing",
+    )
 
     def on_predict_start(self, trainer, pl_module) -> None:
         before = len(trainer.callbacks)

@@ -7,8 +7,9 @@ inputs:
     path: azureml:battery_data_256_256@latest
     mode: ro_mount
   model:
-    type: custom_model
-    path: azureml:battery_fastflow_model:latest
+    type: uri_file
+    path: azureml://jobs/joyful_grass_01rz3hb5dk/outputs/outputs/model.pt
+    mode: ro_mount
 outputs:
   inference_results:
     type: uri_folder

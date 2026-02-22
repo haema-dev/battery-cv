@@ -294,11 +294,30 @@ def load_model(model_path: str, precision: str = "32"):
     model.load_state_dict(state_dict)
     logger.info(f"state_dict 로드 완료")
 
-    # Lightning ckpt 래핑 (engine.predict 호환)
+    # Lightning ckpt 래핑 (engine.predict 호환) — index.py와 동일한 구조
+    import lightning.pytorch as L
+    eval_transform = Compose([
+        ToImage(),
+        ToDtype(torch.float32, scale=True),
+        Resize((256, 256)),
+        Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+    ])
+    wrapped = {
+        "state_dict":                  model.state_dict(),
+        "transform":                   eval_transform,
+        "pytorch-lightning_version":   L.__version__,
+        "epoch":                       0,
+        "global_step":                 0,
+        "loops":                       None,
+        "callbacks":                   {},
+        "optimizer_states":            [],
+        "lr_schedulers":               [],
+    }
     tmp_f = tempfile.NamedTemporaryFile(suffix=".ckpt", delete=False)
     ckpt_path = tmp_f.name
     tmp_f.close()
-    torch.save({"state_dict": model.state_dict()}, ckpt_path)
+    torch.save(wrapped, ckpt_path)
+    logger.info("state_dict → Lightning ckpt 래핑 완료")
 
     return model, ckpt_path, saved_thresh
 

@@ -30,6 +30,14 @@ jobs:
             group=${{ secrets.AZURE_RESOURCE_GROUP }} \
             workspace=${{ secrets.AZURE_WORKSPACE }}
 
+      - name: Register Model from Stage 1
+        run: |
+          echo "🚀 Registering model from Job: joyful_grass_01rz3hb5dk"
+          az ml model create --name battery_fastflow_model \
+            --path azureml://jobs/joyful_grass_01rz3hb5dk/outputs/outputs/model.pt \
+            --type custom_model
+          echo "✅ Model Registered (latest version updated)"
+
       - name: Run Stage 2 Evaluation
         run: |
           echo "📊 Running Stage 2 Inference Job"

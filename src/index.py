@@ -479,6 +479,14 @@ def main():
         eff_backbone   = args.backbone
         eff_flow_steps = args.flow_steps
 
+        # custom_model 마운트 시 디렉토리로 제공됨 → 내부 .pt/.ckpt 파일 탐색
+        if args.model_path and os.path.isdir(args.model_path):
+            for fname in sorted(os.listdir(args.model_path)):
+                if fname.endswith((".pt", ".ckpt")):
+                    args.model_path = os.path.join(args.model_path, fname)
+                    logger.info(f"디렉토리에서 모델 파일 발견: {args.model_path}")
+                    break
+
         if args.model_path and os.path.exists(args.model_path):
             if args.model_path.endswith(".ckpt"):
                 logger.info(f"Lightning 체크포인트 사용: {args.model_path}")

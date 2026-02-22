@@ -572,15 +572,15 @@ def main():
             callbacks.append(_DisableVisualizerAtStart())
         if args.mode == "training":
             callbacks.append(EarlyStopping(
-                monitor="image_AUROC",
+                monitor="AUROC",
                 patience=args.patience,
                 mode="max",
                 verbose=True,
             ))
             callbacks.append(ModelCheckpoint(
                 dirpath=str(OUTPUT_DIR / "checkpoints"),
-                filename="fastflow-{epoch:03d}-auroc{image_AUROC:.4f}",
-                monitor="image_AUROC",
+                filename="fastflow-{epoch:03d}-auroc{AUROC:.4f}",
+                monitor="AUROC",
                 mode="max",
                 save_top_k=3,
                 save_last=True,

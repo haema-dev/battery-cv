@@ -438,11 +438,9 @@ def run_test_eval(args):
     precision_map = {"32": "32-true", "16": "16-mixed", "32-true": "32-true", "16-mixed": "16-mixed"}
     pl_precision  = precision_map.get(args.precision, "32-true")
 
-    from lightning.pytorch.callbacks import EarlyStopping
     engine = Engine(
-        task          = TaskType.CLASSIFICATION,
-        precision     = pl_precision,
-        callbacks     = [_DisableVisualizerAtStart()],
+        precision           = pl_precision,
+        callbacks           = [_DisableVisualizerAtStart()],
         enable_progress_bar = True,
     )
 

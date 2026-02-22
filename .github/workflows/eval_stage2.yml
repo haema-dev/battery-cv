@@ -1,11 +1,6 @@
 name: 02_Stage2_Evaluation_and_Heatmap
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - tk_test_6
-    paths:
-      - 'inference-job.yml'
 
 jobs:
   inference:

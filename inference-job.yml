@@ -22,4 +22,3 @@ environment_variables:
   PYTHONNOUSERSITE: "1"
 compute: azureml:gpu-t4
 experiment_name: Battery_FastFlow_v2_Inference
-# trigger: 2026-02-22 score-direction fix

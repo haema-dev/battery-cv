@@ -1,0 +1,50 @@
+name: 04_Stage3_Test_Evaluation
+on:
+  workflow_dispatch:
+
+jobs:
+  test_eval:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Install Azure ML CLI
+        run: |
+          az extension add -n ml --yes
+          az config set extension.dynamic_install_allow_preview=true
+
+      - name: Configure Azure ML
+        run: |
+          az configure --defaults \
+            group=${{ secrets.AZURE_RESOURCE_GROUP }} \
+            workspace=${{ secrets.AZURE_WORKSPACE }}
+
+      - name: Run Stage 3 Test Evaluation
+        run: |
+          echo "🧪 Running Stage 3 Test Evaluation Job"
+          echo "  소스A: test_data/       (100장, 원본 1920x1080, JSON 라벨)"
+          echo "  소스B: classification_data/ (2,248장 불량)"
+          echo "  소스C: good_images_cropped_resized/ (2,640장 정상)"
+          echo "  모델 : battery_fastflow_model@latest"
+
+          JOB_NAME=$(az ml job create --file test-job.yml \
+            --query name -o tsv)
+
+          echo "JOB_NAME=$JOB_NAME" >> $GITHUB_ENV
+          echo "✅ [Stage 3] Test Eval Job Submitted: $JOB_NAME"
+
+      - name: Show Monitoring URL
+        run: |
+          STUDIO_URL=$(az ml job show --name "$JOB_NAME" \
+            --query "services.Studio.endpoint" -o tsv 2>/dev/null || echo "")
+          echo ""
+          echo "================================================================"
+          echo "  Azure ML Studio 모니터링 URL"
+          echo "  $STUDIO_URL"
+          echo "================================================================"

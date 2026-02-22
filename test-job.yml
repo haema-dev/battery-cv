@@ -1,6 +1,7 @@
 $schema: https://azuremlschemas.azureedge.net/latest/commandJob.schema.json
 command: >-
-  python test_eval.py
+  python index.py
+    --mode            test
     --model_path      ${{inputs.model}}
     --test_data_path  ${{inputs.test_data}}
     --class_data_path ${{inputs.class_data}}

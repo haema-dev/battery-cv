@@ -354,13 +354,26 @@ def main():
     parser = argparse.ArgumentParser(description="Battery FastFlow – anomalib 2.2.0")
 
     # 경로
-    parser.add_argument("--data_path",   type=str, required=True)
+    parser.add_argument("--data_path",   type=str, default=None,
+                        help="학습/평가/예측 데이터 루트 (test 모드에서는 불필요)")
     parser.add_argument("--model_path",  type=str, default=None)
     parser.add_argument("--output_dir",  type=str, default="./outputs")
 
     # 모드
     parser.add_argument("--mode", type=str, default="training",
-                        choices=["training", "evaluation", "prediction"])
+                        choices=["training", "evaluation", "prediction", "test"])
+
+    # test 모드 전용 인수
+    parser.add_argument("--test_data_path",   type=str, default=None,
+                        help="[test] test_data/ 폴더 (originnal_image/ + labels/)")
+    parser.add_argument("--class_data_path",  type=str, default=None,
+                        help="[test] classification_data/none_heatmap_based/ 폴더")
+    parser.add_argument("--normal_data_path", type=str, default=None,
+                        help="[test] 정상 이미지 폴더 (폴더 전체=정상)")
+    parser.add_argument("--sample_n",         type=int, default=0,
+                        help="[test] 랜덤 샘플 수 (0=전체)")
+    parser.add_argument("--save_vis",         action="store_true",
+                        help="[test] 히트맵 시각화 저장")
 
     # 모델 하이퍼파라미터 (최고 성능 기본값)
     parser.add_argument("--backbone",     type=str,   default="wide_resnet50_2",
@@ -385,6 +398,15 @@ def main():
 
     args = parser.parse_args()
     set_seed(args.seed)
+
+    # test 모드: test_eval.py의 run_test_eval로 위임 후 종료
+    if args.mode == "test":
+        from test_eval import run_test_eval
+        run_test_eval(args)
+        return
+
+    if args.data_path is None:
+        raise ValueError("--data_path 는 training/evaluation/prediction 모드에서 필수입니다.")
 
     OUTPUT_DIR = Path(args.output_dir)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)

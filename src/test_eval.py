@@ -357,27 +357,12 @@ def compute_metrics(y_true, y_score, saved_thresh, output_dir: Path):
 
 
 # ────────────────────────────────────────────────
-# 메인
+# 메인 실행 (index.py --mode test 위임용)
 # ────────────────────────────────────────────────
-def main():
-    parser = argparse.ArgumentParser(description="FastFlow 종합 테스트 평가")
-    parser.add_argument("--model_path",       type=str, required=True,
-                        help="모델 디렉토리 (.pt 파일 포함)")
-    parser.add_argument("--test_data_path",   type=str, default=None,
-                        help="test_data/ 폴더 (originnal_image/ + labels/)")
-    parser.add_argument("--class_data_path",  type=str, default=None,
-                        help="classification_data/none_heatmap_based/ 폴더")
-    parser.add_argument("--normal_data_path", type=str, default=None,
-                        help="정상 이미지 폴더 (폴더 전체 = 정상)")
-    parser.add_argument("--output_dir",       type=str, default="./outputs")
-    parser.add_argument("--precision",        type=str, default="32")
-    parser.add_argument("--batch_size",       type=int, default=16)
-    parser.add_argument("--sample_n",         type=int, default=0,
-                        help="랜덤 샘플 수 (0=전체)")
-    parser.add_argument("--save_vis",         action="store_true",
-                        help="히트맵 시각화 저장 (시간 소요)")
-    args = parser.parse_args()
-
+def run_test_eval(args):
+    """index.py에서 --mode test 시 호출되는 진입점.
+    args: argparse.Namespace (index.py 파서로 파싱된 args 그대로 사용)
+    """
     OUTPUT_DIR = Path(args.output_dir)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -556,6 +541,20 @@ def main():
         os.unlink(ckpt_path)
     except Exception:
         pass
+
+
+def main():
+    parser = argparse.ArgumentParser(description="FastFlow 종합 테스트 평가")
+    parser.add_argument("--model_path",       type=str, required=True)
+    parser.add_argument("--test_data_path",   type=str, default=None)
+    parser.add_argument("--class_data_path",  type=str, default=None)
+    parser.add_argument("--normal_data_path", type=str, default=None)
+    parser.add_argument("--output_dir",       type=str, default="./outputs")
+    parser.add_argument("--precision",        type=str, default="32")
+    parser.add_argument("--batch_size",       type=int, default=16)
+    parser.add_argument("--sample_n",         type=int, default=0)
+    parser.add_argument("--save_vis",         action="store_true")
+    run_test_eval(parser.parse_args())
 
 
 if __name__ == "__main__":

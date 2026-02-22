@@ -166,12 +166,36 @@ def build_records(test_data_path, class_data_path, normal_data_path, sample_n=0)
 
 
 # ────────────────────────────────────────────────
+# Letterbox resize (학습 데이터 "256x256 fit" 방식과 일치)
+# ────────────────────────────────────────────────
+def fit_to_square(img: Image.Image, size: int = 256) -> Image.Image:
+    """긴 변을 size에 맞게 축소 → 짧은 변을 0(검정) 패딩으로 size까지 확장.
+    학습 데이터 폴더명 '256x256 fit'과 동일한 방식.
+    이미 size×size 이면 그대로 반환(no-op).
+    """
+    w, h = img.size
+    if w == size and h == size:
+        return img
+    scale = size / max(w, h)
+    new_w = max(1, round(w * scale))
+    new_h = max(1, round(h * scale))
+    img = img.resize((new_w, new_h), Image.BILINEAR)
+    pad_l = (size - new_w) // 2
+    pad_t = (size - new_h) // 2
+    pad_r = size - new_w - pad_l
+    pad_b = size - new_h - pad_t
+    from PIL import ImageOps
+    return ImageOps.expand(img, border=(pad_l, pad_t, pad_r, pad_b), fill=0)
+
+
+# ────────────────────────────────────────────────
 # 커스텀 Dataset
 # ────────────────────────────────────────────────
 class MultiSourceDataset(torch.utils.data.Dataset):
-    def __init__(self, records: list, transform):
-        self.records   = records
-        self.transform = transform
+    def __init__(self, records: list, transform, image_size: int = 256):
+        self.records    = records
+        self.transform  = transform
+        self.image_size = image_size
 
     def __len__(self):
         return len(self.records)
@@ -182,10 +206,13 @@ class MultiSourceDataset(torch.utils.data.Dataset):
             img = Image.open(rec["image_path"]).convert("RGB")
         except Exception as e:
             logger.warning(f"이미지 로드 실패 ({rec['image_path']}): {e}")
-            img = Image.new("RGB", (256, 256), 0)
+            img = Image.new("RGB", (self.image_size, self.image_size), 0)
 
         if rec.get("crop_bbox"):
             img = img.crop(rec["crop_bbox"])
+
+        # 비정사각형 이미지는 letterbox로 정사각형화 후 transform
+        img = fit_to_square(img, self.image_size)
 
         return {
             "image":      self.transform(img),
@@ -386,7 +413,7 @@ def run_test_eval(args):
         Resize((256, 256)),
         Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     ])
-    dataset = MultiSourceDataset(records, eval_transform)
+    dataset = MultiSourceDataset(records, eval_transform, image_size=256)
     loader  = torch.utils.data.DataLoader(
         dataset,
         batch_size  = args.batch_size,

@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # anomalib 2.2.0 | Python 3.11 | Azure ML GPU T4
 # FastFlow 최고 성능 구성: wide_resnet50_2 + flow_steps=8 + FP32 + augmentation
+# test mode: YAML command 들여쓰기 버그 수정 (2026-02-22)
 
 import os
 import random

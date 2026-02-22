@@ -234,11 +234,15 @@ def load_model(model_path: str, precision: str = "32"):
     import tempfile
 
     model_dir = Path(model_path)
-    # .pt 파일 탐색
-    pt_files = list(model_dir.glob("*.pt")) + list(model_dir.glob("**/*.pt"))
-    if not pt_files:
-        raise FileNotFoundError(f"모델 .pt 파일을 찾을 수 없음: {model_dir}")
-    pt_path = pt_files[0]
+    # Azure ML custom_model: 파일 직접 전달 or 디렉토리 전달 모두 처리
+    if model_dir.is_file() and model_dir.suffix in (".pt", ".ckpt"):
+        pt_path = model_dir
+    else:
+        pt_files = (list(model_dir.glob("*.pt"))   + list(model_dir.glob("**/*.pt")) +
+                    list(model_dir.glob("*.ckpt")) + list(model_dir.glob("**/*.ckpt")))
+        if not pt_files:
+            raise FileNotFoundError(f"모델 .pt/.ckpt 파일을 찾을 수 없음: {model_dir}")
+        pt_path = pt_files[0]
     logger.info(f"모델 파일: {pt_path}")
 
     state_dict = torch.load(str(pt_path), map_location="cpu", weights_only=False)

@@ -2,8 +2,10 @@ $schema: https://azuremlschemas.azureedge.net/latest/commandJob.schema.json
 type: command
 code: src/
 
-# ★ 최고 성능 설정: wide_resnet50_2 + flow_steps=16 + FP16
-# 안정성 패치 (2026-02-20):
+# wide_resnet50_2 + flow_steps=8 + FP32
+# 안정성 패치 (2026-02-22):
+#   - precision=32-true: FP16/16-mixed → wide_resnet50_2에서 NaN 오버플로 발생
+#   - flow_steps=8: 16→8로 축소하여 메모리/안정성 확보
 #   - gradient_clip_val=1.0: index.py Engine에서 자동 적용 (loss 폭발 방지)
 #   - LR=1e-4: FastflowCompat.configure_optimizers 재정의 (논문 권장값)
 #   - epochs=300 + patience=20: wide_resnet50_2 충분한 수렴 보장
@@ -13,12 +15,12 @@ command: |
     --output_dir  ${{outputs.outputs}} \
     --mode        training \
     --backbone    wide_resnet50_2 \
-    --flow_steps  16 \
+    --flow_steps  8 \
     --image_size  256 \
     --epochs      300 \
     --batch_size  16 \
     --patience    20 \
-    --precision   16-mixed \
+    --precision   32-true \
     --seed        42
 
 inputs:

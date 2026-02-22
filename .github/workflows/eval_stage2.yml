@@ -39,9 +39,9 @@ jobs:
         id: register_model
         run: |
           echo "🚀 Registering model from Job: joyful_grass_01rz3hb5dk"
-          REG_OUTPUT=$(az ml model create --name battery_fastflow_model \
+          REG_OUTPUT=$(az ml data create --name battery_fastflow_model \
             --path azureml://jobs/joyful_grass_01rz3hb5dk/outputs/outputs/model.pt \
-            --type custom_model -o json)
+            --type uri_file -o json)
 
           VERSION=$(echo $REG_OUTPUT | jq -r '.version')
           echo "MODEL_VERSION=$VERSION" >> $GITHUB_ENV

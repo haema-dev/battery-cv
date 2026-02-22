@@ -1,3 +1,4 @@
+# inference job for battery_fastflow_model (uri_file data asset)
 $schema: https://azuremlschemas.azureedge.net/latest/commandJob.schema.json
 command: python index.py --data_path ${{inputs.data}} --model_path ${{inputs.model}} --output_dir ${{outputs.inference_results}} --mode prediction --precision 32
 code: src/

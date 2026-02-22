@@ -291,6 +291,9 @@ def load_model(model_path: str, precision: str = "32"):
         conv3x3_only=False,
         hidden_ratio=1.0,
     )
+    # index.py 631줄과 동일: CLASSIFICATION 태스크 명시 (기본값 SEGMENTATION이면
+    # anomalib이 GT 마스크 없는 DataLoader에서 pixel 지표 계산 시도 → 오류)
+    model.task = TaskType.CLASSIFICATION
     model.load_state_dict(state_dict)
     logger.info(f"state_dict 로드 완료")
 

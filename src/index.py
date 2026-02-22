@@ -156,7 +156,52 @@ class FastflowCompat(Fastflow):
     추가 변경:
     - configure_optimizers: wide_resnet50_2 권장 LR(1e-4) 적용.
       anomalib 기본값 1e-3은 normalizing flow + FP16 조합에서 loss 폭발 위험.
+    - __init__: CLASSIFICATION task용 image-level Evaluator 재설정.
+      anomalib 기본 Evaluator는 pixel_AUROC(gt_mask 필요)를 포함하므로 제거.
     """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._setup_image_only_evaluator()
+
+    def _setup_image_only_evaluator(self):
+        """pixel mask 없는 CLASSIFICATION task용 Evaluator 설정.
+
+        anomalib 기본 Evaluator: image_AUROC + pixel_AUROC(gt_mask 필요).
+        pixel_AUROC 제거 → 방법1: 새 Evaluator 생성, 방법2: gt_mask 항목 필터링.
+        """
+        # 방법 1: 새 Evaluator 생성 (image_AUROC only)
+        try:
+            from anomalib.metrics.evaluator import Evaluator
+            from anomalib.metrics.auroc import AUROC
+            try:
+                val_metrics  = [AUROC(fields=["pred_score", "gt_label"])]
+                test_metrics = [AUROC(fields=["pred_score", "gt_label"])]
+            except TypeError:
+                # fields가 constructor 인자가 아닌 경우 (class variable)
+                val_metrics  = [AUROC()]
+                test_metrics = [AUROC()]
+            self.evaluator = Evaluator(val_metrics=val_metrics, test_metrics=test_metrics)
+            logger.info("Evaluator: image_AUROC only 설정 완료 (CLASSIFICATION)")
+            return
+        except Exception as e:
+            logger.warning(f"Evaluator 신규 생성 실패 → gt_mask metrics 필터링 시도: {e}")
+
+        # 방법 2: 기존 evaluator에서 gt_mask 요구 metrics 제거
+        ev = getattr(self, "evaluator", None)
+        if ev is None:
+            return
+        import torch.nn as nn
+        for attr in ("val_metrics", "test_metrics"):
+            ml = getattr(ev, attr, None)
+            if ml is None:
+                continue
+            keep = [m for m in ml if "gt_mask" not in getattr(m, "fields", [])]
+            try:
+                setattr(ev, attr, nn.ModuleList(keep))
+            except Exception:
+                setattr(ev, attr, keep)
+            logger.info(f"Evaluator.{attr}: {len(keep)}개 metrics 유지 (gt_mask 항목 제거)")
 
     def configure_optimizers(self):
         """wide_resnet50_2 + FP16 권장 LR(1e-4)으로 Adam 재정의.

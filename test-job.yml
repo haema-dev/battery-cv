@@ -43,3 +43,4 @@ environment_variables:
 compute: azureml:gpu-t4
 experiment_name: Battery_FastFlow_v2_Test
 display_name: "FastFlow Test Eval – A(100장)+B(2248장 불량)"
+# trigger: 2026-02-22

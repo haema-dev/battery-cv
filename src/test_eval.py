@@ -283,11 +283,13 @@ def load_model(model_path: str, precision: str = "32"):
                 logger.info(f"저장 임계값: {saved_thresh:.6f} (키={key})")
                 break
 
-    # FastflowCompat 생성
+    # FastflowCompat 생성 (index.py 학습 시와 동일한 인수)
     model = FastflowCompat(
         backbone=backbone,
+        pre_trained=False,
         flow_steps=flow_steps,
-        task=TaskType.CLASSIFICATION,
+        conv3x3_only=False,
+        hidden_ratio=1.0,
     )
     model.load_state_dict(state_dict)
     logger.info(f"state_dict 로드 완료")

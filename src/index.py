@@ -791,34 +791,52 @@ def main():
                 # ── 분류 지표 ──────────────────────────
                 metrics_log = {}
                 if has_gt:
-                    # ── 저장 임계값이 스케일 불일치 시 ROC 기반 최적 임계값 자동 계산 ──
-                    # anomalib 1.x(sum) vs 2.x(mean) 스케일 차이로 stored threshold가
-                    # 현재 score 범위 밖에 있을 수 있음 → Youden's J로 자동 보정.
+                    # ── GT 존재 시 항상 Youden J로 재보정 + score 방향 자동 감지 ──
+                    # score 방향이 두 가지일 수 있음:
+                    #   표준: lower score = defect (FastFlow log-likelihood, 불량≪0)
+                    #   역전: higher score = defect (분포 역전 시 – 예: validation 분포 차이)
+                    # → 두 방향 모두 시도 후 AUROC 높은 방향 선택
                     from sklearn.metrics import roc_curve as _roc_curve
-                    # 불량이 더 음수이므로 -y_score 기준 ROC (높을수록 불량)
-                    _fpr, _tpr, _thrs = _roc_curve(y_true, -y_score)
-                    _j_idx  = int(np.argmax(_tpr - _fpr))
-                    auto_thr = float(-_thrs[_j_idx])   # 원래 스케일로 복원
                     score_min, score_max = float(y_score.min()), float(y_score.max())
                     thr_in_range = score_min <= decision_threshold <= score_max if decision_threshold is not None else False
-
                     if not thr_in_range:
-                        logger.warning(
-                            f"저장 임계값({decision_threshold:.6f})이 실제 점수 범위 "
-                            f"[{score_min:.6f}, {score_max:.6f}] 밖 → "
-                            f"Youden J 자동 임계값 {auto_thr:.6f} 로 재판정"
+                        logger.info(
+                            f"저장 임계값({decision_threshold}) 점수 범위 밖 "
+                            f"[{score_min:.4f}, {score_max:.4f}]"
                         )
-                        # 자동 임계값으로 pred 재계산
-                        y_pred = (y_score < auto_thr).astype(int)
+
+                    # 방향1 (표준): lower y_score = defect → -y_score 기준 ROC
+                    _fpr1, _tpr1, _thrs1 = _roc_curve(y_true, -y_score)
+                    _j1 = int(np.argmax(_tpr1 - _fpr1))
+                    auto_thr_std = float(-_thrs1[_j1])
+                    auroc_std = roc_auc_score(y_true, -y_score)
+
+                    # 방향2 (역전): higher y_score = defect → y_score 기준 ROC
+                    _fpr2, _tpr2, _thrs2 = _roc_curve(y_true, y_score)
+                    _j2 = int(np.argmax(_tpr2 - _fpr2))
+                    auto_thr_inv = float(_thrs2[_j2])
+                    auroc_inv = roc_auc_score(y_true, y_score)
+
+                    if auroc_inv > auroc_std:
+                        logger.warning(
+                            f"[Score 방향 역전 감지] AUROC_inv={auroc_inv:.4f} > "
+                            f"AUROC_std={auroc_std:.4f} → "
+                            f"역방향(higher=defect) Youden J 임계값 {auto_thr_inv:.6f} 적용"
+                        )
+                        y_pred = (y_score > auto_thr_inv).astype(int)
+                        auroc  = auroc_inv
+                    else:
+                        logger.info(
+                            f"Youden J 재보정(표준): {decision_threshold} → "
+                            f"{auto_thr_std:.6f} (AUROC={auroc_std:.4f})"
+                        )
+                        y_pred = (y_score < auto_thr_std).astype(int)
+                        auroc  = auroc_std
 
                     acc  = accuracy_score(y_true, y_pred)
                     prec = precision_score(y_true, y_pred, zero_division=0)
                     rec  = recall_score(y_true, y_pred, zero_division=0)
                     f1   = f1_score(y_true, y_pred, zero_division=0)
-                    try:
-                        auroc = roc_auc_score(y_true, -y_score)   # 부호 반전 (불량=더음수)
-                    except Exception:
-                        auroc = float("nan")
 
                     metrics_log = {
                         "accuracy": acc, "precision": prec,

@@ -39,6 +39,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from index import (
     FastflowCompat, _DisableVisualizerAtStart,
     blend_heatmap, annotate_image,
+    detect_backbone, detect_flow_steps,
 )
 
 from anomalib.engine import Engine
@@ -249,26 +250,11 @@ def load_model(model_path: str, precision: str = "32"):
     if isinstance(state_dict, dict) and "state_dict" in state_dict:
         state_dict = state_dict["state_dict"]
 
-    # backbone 자동 감지
-    backbone   = "wide_resnet50_2"
-    flow_steps = 8
-    for k in state_dict:
-        if "wide_resnet50_2" in k:
-            backbone = "wide_resnet50_2"
-            break
-        elif "resnet18" in k:
-            backbone = "resnet18"
-            break
-
-    # flow_steps 감지
-    fs_keys = [k for k in state_dict if "fast_flow_blocks" in k]
-    if fs_keys:
-        max_idx = max(
-            int(k.split("fast_flow_blocks.")[1].split(".")[0])
-            for k in fs_keys
-            if "fast_flow_blocks." in k
-        )
-        flow_steps = max_idx + 1
+    # backbone / flow_steps 자동 감지 — index.py 함수 재사용
+    # (이전 inline 코드는 fast_flow_blocks.X 블록 인덱스=feature level 수를
+    #  flow_steps로 오인식 → wide_resnet50_2는 항상 3으로 감지되어 8 대신 3 사용)
+    backbone   = detect_backbone(state_dict) or "wide_resnet50_2"
+    flow_steps = detect_flow_steps(state_dict) or 8
 
     logger.info(f"backbone={backbone}, flow_steps={flow_steps}")
 

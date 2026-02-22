@@ -1,6 +1,11 @@
 name: 04_Stage3_Test_Evaluation
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - tk_test_7
+    paths:
+      - 'test-job.yml'
 
 jobs:
   test_eval:

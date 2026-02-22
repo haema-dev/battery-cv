@@ -21,4 +21,4 @@ environment:
 environment_variables:
   PYTHONNOUSERSITE: "1"
 compute: azureml:gpu-t4
-experiment_name: Battery_S1_AnomalyDetection
+experiment_name: Battery_FastFlow_v2_Inference

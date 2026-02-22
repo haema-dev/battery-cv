@@ -5,14 +5,13 @@ command: >-
     --model_path      ${{inputs.model}}
     --test_data_path  ${{inputs.test_data}}
     --class_data_path ${{inputs.class_data}}
-    --normal_data_path ${{inputs.normal_data}}
     --output_dir      ${{outputs.test_results}}
     --precision       32
     --batch_size      16
 code: src/
 
 inputs:
-  # 소스A: test_data/ (originnal_image/ + labels/*.json) — 100장, 원본 1920x1080
+  # 소스A: test_data/ (originnal_image/ + labels/*.json) — 100장, 원본 1920x1080, 정상+불량 혼합
   test_data:
     type: uri_folder
     path: azureml://datastores/battery_data_unzip/paths/test_data/
@@ -22,12 +21,6 @@ inputs:
   class_data:
     type: uri_folder
     path: azureml://datastores/battery_data_unzip/paths/classification_data/none_heatmap_based/
-    mode: ro_mount
-
-  # 소스C: 정상 이미지 폴더 (전체 = 정상, 학습 데이터 중복 가능성 있음)
-  normal_data:
-    type: uri_folder
-    path: azureml://datastores/battery_data_unzip/paths/good_images_cropped_resized/
     mode: ro_mount
 
   # 등록된 FastFlow 모델
@@ -49,4 +42,4 @@ environment_variables:
   PYTHONNOUSERSITE: "1"
 compute: azureml:gpu-t4
 experiment_name: Battery_FastFlow_v2_Test
-display_name: "FastFlow Test Eval – 5000장 종합"
+display_name: "FastFlow Test Eval – A(100장)+B(2248장 불량)"

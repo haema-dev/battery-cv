@@ -38,7 +38,7 @@ from sklearn.metrics import (
 sys.path.insert(0, str(Path(__file__).parent))
 from index import (
     FastflowCompat, _DisableVisualizerAtStart,
-    _setup_image_only_evaluator, blend_heatmap, annotate_image,
+    blend_heatmap, annotate_image,
 )
 
 from anomalib.engine import Engine
